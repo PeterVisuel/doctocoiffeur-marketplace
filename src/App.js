@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 const initialSalons = [
   { id: 1, name: 'Coiffure Élégance', city: 'Paris', address: '123 Rue de la Paix', phone: '01 23 45 67 89', description: 'Salon haut de gamme', rating: 4.8, reviews: 24, services: [{ id: 1, name: 'Coupe femme', duration: 45, min_price: 40, max_price: 55 }], staff: [{ id: 1, name: 'Sophie', speciality: 'Coloration', rating: 4.9, bio: '15 ans' }], status: 'approved' },
