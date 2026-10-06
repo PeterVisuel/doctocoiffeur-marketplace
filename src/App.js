@@ -5,7 +5,7 @@ export default function RendezVousApp() {
   const [view, setView] = useState('home');
   const [user, setUser] = useState(null);
   const [prestataires, setPrestataires] = useState(() => {
-    const saved = localStorage.getItem('rendez_prestataires_v3');
+    const saved = localStorage.getItem('rendez_prestataires_v4');
     return saved ? JSON.parse(saved) : getDefaultPrestataires();
   });
   const [loginEmail, setLoginEmail] = useState('');
@@ -23,12 +23,12 @@ export default function RendezVousApp() {
   // Prestataire dashboard
   const [newService, setNewService] = useState({ name: '', price: '' });
   const [newPhotos, setNewPhotos] = useState([]);
-  const [adminFilter, setAdminFilter] = useState('pending');
+  const [adminFilter, setAdminFilter] = useState('En attente');
   const [currentTab, setCurrentTab] = useState('services');
 
   // ===== SAUVEGARDER PRESTATAIRES =====
   useEffect(() => {
-    localStorage.setItem('rendez_prestataires_v3', JSON.stringify(prestataires));
+    localStorage.setItem('rendez_prestataires_v4', JSON.stringify(prestataires));
   }, [prestataires]);
 
   // ===== DONNÉES PAR DÉFAUT =====
@@ -42,8 +42,8 @@ export default function RendezVousApp() {
         password: 'pass123',
         approved: true,
         services: [
-          { id: 1, name: 'Coupe Femme', price: 45 },
-          { id: 2, name: 'Coloration', price: 60 },
+          { id: 1, name: 'Coupe Femme', price: 45, photos: [] },
+          { id: 2, name: 'Coloration', price: 60, photos: [] },
         ],
         photos: [],
         reservations: [],
@@ -57,8 +57,8 @@ export default function RendezVousApp() {
         password: 'pass123',
         approved: true,
         services: [
-          { id: 1, name: 'Coupe Homme', price: 25 },
-          { id: 2, name: 'Barbe', price: 20 },
+          { id: 1, name: 'Coupe Homme', price: 25, photos: [] },
+          { id: 2, name: 'Barbe', price: 20, photos: [] },
         ],
         photos: [],
         reservations: [],
@@ -72,8 +72,8 @@ export default function RendezVousApp() {
         password: 'pass123',
         approved: true,
         services: [
-          { id: 1, name: 'Coupe Enfant', price: 30 },
-          { id: 2, name: 'Lissage', price: 80 },
+          { id: 1, name: 'Coupe Enfant', price: 30, photos: [] },
+          { id: 2, name: 'Lissage', price: 80, photos: [] },
         ],
         photos: [],
         reservations: [],
@@ -87,6 +87,8 @@ export default function RendezVousApp() {
     if (loginEmail === 'admin123' && loginPassword === 'admin123') {
       setUser({ type: 'admin' });
       setView('admin');
+      setLoginEmail('');
+      setLoginPassword('');
       return;
     }
 
@@ -97,12 +99,11 @@ export default function RendezVousApp() {
     if (prestataire) {
       setUser({ type: 'prestataire', id: prestataire.id });
       setView('prestataire-dashboard');
+      setLoginEmail('');
+      setLoginPassword('');
     } else {
       alert('Email ou password incorrect');
     }
-
-    setLoginEmail('');
-    setLoginPassword('');
   };
 
   const handleLogout = () => {
@@ -171,6 +172,7 @@ export default function RendezVousApp() {
             id: Date.now(),
             name: newService.name,
             price: parseFloat(newService.price),
+            photos: [],
           }],
         };
       }
@@ -291,9 +293,6 @@ export default function RendezVousApp() {
       cursor: 'pointer',
       transition: 'all 0.3s',
     },
-    cardHover: {
-      backgroundColor: '#f0f0f0',
-    },
     content: {
       maxWidth: '1200px',
       margin: '0 auto',
@@ -329,6 +328,14 @@ export default function RendezVousApp() {
       backgroundColor: '#000000',
       color: '#ffffff',
     },
+    searchBox: {
+      backgroundColor: '#f9f9f9',
+      padding: '30px',
+      borderRadius: '4px',
+      border: '1px solid #000000',
+      maxWidth: '400px',
+      margin: '50px auto',
+    },
   };
 
   // ===== RENDER PAGES =====
@@ -344,7 +351,7 @@ export default function RendezVousApp() {
               style={{ ...styles.btn, ...styles.btnPrimary }}
               onClick={() => setView('login')}
             >
-              Connexion
+              Se connecter
             </button>
           </div>
         </header>
@@ -355,14 +362,7 @@ export default function RendezVousApp() {
             <p style={{ fontSize: '18px', color: '#666' }}>Trouvez et réservez vos prestataires</p>
           </div>
 
-          <div style={{
-            backgroundColor: '#f9f9f9',
-            padding: '30px',
-            borderRadius: '4px',
-            border: '1px solid #000000',
-            maxWidth: '600px',
-            margin: '0 auto',
-          }}>
+          <div style={styles.searchBox}>
             <h2>Rechercher un prestataire</h2>
             <input
               type="text"
@@ -407,14 +407,7 @@ export default function RendezVousApp() {
         </header>
 
         <div style={styles.content}>
-          <div style={{
-            backgroundColor: '#f9f9f9',
-            padding: '30px',
-            borderRadius: '4px',
-            border: '1px solid #000000',
-            maxWidth: '400px',
-            margin: '50px auto',
-          }}>
+          <div style={styles.searchBox}>
             <h2>Connexion</h2>
             <input
               type="email"
@@ -526,9 +519,9 @@ export default function RendezVousApp() {
           <h2>{selectedPrestataire.name}</h2>
           <p>{selectedPrestataire.city}</p>
 
-          {/* PHOTOS */}
+          {/* PHOTOS PROFIL */}
           <div style={{ marginTop: '30px', marginBottom: '30px' }}>
-            <h3>Photos</h3>
+            <h3>Photos Profil</h3>
             {selectedPrestataire.photos && selectedPrestataire.photos.length > 0 ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
                 {selectedPrestataire.photos.map(photo => (
@@ -547,12 +540,23 @@ export default function RendezVousApp() {
             <h3>Services</h3>
             {selectedPrestataire.services.map(service => (
               <div key={service.id} style={{ ...styles.card, cursor: 'pointer', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{service.name}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <span><strong>{service.name}</strong></span>
                   <span>{service.price} EUR</span>
                 </div>
+
+                {service.photos && service.photos.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '10px', marginBottom: '10px' }}>
+                    {service.photos.map(photo => (
+                      <div key={photo.id} style={{ width: '100%', height: '100px', overflow: 'hidden', borderRadius: '4px', border: '1px solid #000' }}>
+                        <img src={photo.data} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <button
-                  style={{ ...styles.btn, ...styles.btnPrimary, marginTop: '10px', width: '100%' }}
+                  style={{ ...styles.btn, ...styles.btnPrimary, width: '100%' }}
                   onClick={() => {
                     setSelectedService(service);
                     setView('reservation');
@@ -590,14 +594,7 @@ export default function RendezVousApp() {
         </header>
 
         <div style={styles.content}>
-          <div style={{
-            backgroundColor: '#f9f9f9',
-            padding: '30px',
-            borderRadius: '4px',
-            border: '1px solid #000000',
-            maxWidth: '500px',
-            margin: '30px auto',
-          }}>
+          <div style={styles.searchBox}>
             <h2>{selectedPrestataire.name}</h2>
             <p>{selectedService.name} - {selectedService.price} EUR</p>
 
@@ -736,6 +733,7 @@ export default function RendezVousApp() {
                   <tr>
                     <th style={styles.th}>Service</th>
                     <th style={styles.th}>Prix</th>
+                    <th style={styles.th}>Photos</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -743,6 +741,7 @@ export default function RendezVousApp() {
                     <tr key={service.id}>
                       <td style={styles.td}>{service.name}</td>
                       <td style={styles.td}>{service.price} EUR</td>
+                      <td style={styles.td}>{service.photos?.length || 0} photo(s)</td>
                     </tr>
                   ))}
                 </tbody>
@@ -753,7 +752,7 @@ export default function RendezVousApp() {
           {/* PHOTOS */}
           {currentTab === 'photos' && (
             <div>
-              <h3>Galerie Photos</h3>
+              <h3>Galerie Photos Profil</h3>
               <div style={{ marginBottom: '20px' }}>
                 <input
                   type="file"
@@ -863,6 +862,9 @@ export default function RendezVousApp() {
 
   // ADMIN PANEL
   if (view === 'admin') {
+
+    const filterLabels = ['En attente', 'Approuvé', 'Tous'];
+
     return (
       <div style={styles.container}>
         <header style={styles.header}>
@@ -880,26 +882,26 @@ export default function RendezVousApp() {
 
         <div style={styles.content}>
           <h2>Admin Panel</h2>
-          
+
           <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-            {['pending', 'approved', 'all'].map(filter => (
+            {filterLabels.map(label => (
               <button
-                key={filter}
+                key={label}
                 style={{
                   ...styles.btn,
-                  ...(adminFilter === filter ? styles.btnPrimary : styles.btnSecondary),
+                  ...(adminFilter === label ? styles.btnPrimary : styles.btnSecondary),
                 }}
-                onClick={() => setAdminFilter(filter)}
+                onClick={() => setAdminFilter(label)}
               >
-                {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                {label}
               </button>
             ))}
           </div>
 
           {prestataires
             .filter(p => {
-              if (adminFilter === 'pending') return !p.approved;
-              if (adminFilter === 'approved') return p.approved;
+              if (adminFilter === 'En attente') return !p.approved;
+              if (adminFilter === 'Approuvé') return p.approved;
               return true;
             })
             .map(p => (
