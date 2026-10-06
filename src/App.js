@@ -1,483 +1,859 @@
 import React, { useState, useEffect } from 'react';
 
-const initialSalons = [
-  { id: 1, name: 'Coiffure Élégance', city: 'Paris', email: 'elegance@salon.fr', password: 'pass123', address: '123 Rue de la Paix', phone: '01 23 45 67 89', description: 'Salon haut de gamme', rating: 4.8, reviews: 24, services: [{ id: 1, name: 'Coupe femme', duration: 45, price: 50, image: '✂️' }], staff: [{ id: 1, name: 'Sophie', speciality: 'Coloration', rating: 4.9 }], photos: [], bookings: [], status: 'approved' },
-  { id: 2, name: 'Salon du Marais', city: 'Paris', email: 'marais@salon.fr', password: 'pass123', address: '45 Rue des Archives', phone: '01 42 12 34 56', description: 'Tendance et moderne', rating: 4.6, reviews: 18, services: [{ id: 1, name: 'Coupe homme', duration: 30, price: 35, image: '💈' }], staff: [{ id: 1, name: 'Marc', speciality: 'Barbe', rating: 4.7 }], photos: [], bookings: [], status: 'approved' },
-  { id: 3, name: 'Hair Studio Lyon', city: 'Lyon', email: 'lyon@salon.fr', password: 'pass123', address: '78 Rue Herriot', phone: '04 72 34 56 78', description: 'Spécialiste couleur', rating: 4.9, reviews: 32, services: [{ id: 1, name: 'Coloration', duration: 120, price: 75, image: '🎨' }], staff: [{ id: 1, name: 'Isabelle', speciality: 'Couleur', rating: 4.95 }], photos: [], bookings: [], status: 'approved' }
-];
-
-export default function App() {
-  // ============ TOUS LES STATES EN HAUT ============
+export default function RendezVousApp() {
+  // ===== TOUS LES HOOKS EN HAUT =====
   const [view, setView] = useState('home');
-  const [currentUser, setCurrentUser] = useState(null);
-  const [city, setCity] = useState('');
+  const [user, setUser] = useState(null);
+  const [prestataires, setPrestataires] = useState(() => {
+    const saved = localStorage.getItem('rendez_prestataires_v3');
+    return saved ? JSON.parse(saved) : getDefaultPrestataires();
+  });
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [newService, setNewService] = useState({ name: '', duration: '', price: '', image: '✂️' });
-  const [newStaff, setNewStaff] = useState({ name: '', speciality: '' });
-  const [photoUrl, setPhotoUrl] = useState('');
+  const [searchCity, setSearchCity] = useState('');
+  const [searchName, setSearchName] = useState('');
+  const [selectedPrestataire, setSelectedPrestataire] = useState(null);
+  const [reservationDate, setReservationDate] = useState('');
+  const [reservationTime, setReservationTime] = useState('');
+  const [reservationName, setReservationName] = useState('');
+  const [reservationPhone, setReservationPhone] = useState('');
   const [selectedService, setSelectedService] = useState(null);
-  const [bookingDate, setBookingDate] = useState('');
-  const [bookingTime, setBookingTime] = useState('10:00');
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  const [adminPass, setAdminPass] = useState('');
-  const [dashTab, setDashTab] = useState('services');
-  const [regName, setRegName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regCity, setRegCity] = useState('');
+  const [showPayment, setShowPayment] = useState(false);
 
-  const [salons, setSalons] = useState(() => {
-    const saved = localStorage.getItem('rendez_salons_v2');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return initialSalons;
-      }
-    }
-    return initialSalons;
-  });
+  // Prestataire dashboard
+  const [newService, setNewService] = useState({ name: '', price: '' });
+  const [newPhotos, setNewPhotos] = useState([]);
+  const [adminFilter, setAdminFilter] = useState('pending');
+  const [currentTab, setCurrentTab] = useState('services');
 
+  // ===== SAUVEGARDER PRESTATAIRES =====
   useEffect(() => {
-    localStorage.setItem('rendez_salons_v2', JSON.stringify(salons));
-  }, [salons]);
+    localStorage.setItem('rendez_prestataires_v3', JSON.stringify(prestataires));
+  }, [prestataires]);
 
-  const colors = {
-    primary: '#8B6F47',
-    secondary: '#D4C4B0',
-    light: '#F5F1ED',
-    dark: '#3E3B38',
-    accent: '#C9A961',
+  // ===== DONNÉES PAR DÉFAUT =====
+  function getDefaultPrestataires() {
+    return [
+      {
+        id: 1,
+        name: 'Elegance Paris',
+        city: 'Paris',
+        email: 'elegance@salon.fr',
+        password: 'pass123',
+        approved: true,
+        services: [
+          { id: 1, name: 'Coupe Femme', price: 45 },
+          { id: 2, name: 'Coloration', price: 60 },
+        ],
+        photos: [],
+        reservations: [],
+        team: [],
+      },
+      {
+        id: 2,
+        name: 'Le Marais',
+        city: 'Paris',
+        email: 'marais@salon.fr',
+        password: 'pass123',
+        approved: true,
+        services: [
+          { id: 1, name: 'Coupe Homme', price: 25 },
+          { id: 2, name: 'Barbe', price: 20 },
+        ],
+        photos: [],
+        reservations: [],
+        team: [],
+      },
+      {
+        id: 3,
+        name: 'Style Lyon',
+        city: 'Lyon',
+        email: 'lyon@salon.fr',
+        password: 'pass123',
+        approved: true,
+        services: [
+          { id: 1, name: 'Coupe Enfant', price: 30 },
+          { id: 2, name: 'Lissage', price: 80 },
+        ],
+        photos: [],
+        reservations: [],
+        team: [],
+      },
+    ];
+  }
+
+  // ===== FONCTIONS UTILITAIRES =====
+  const handleLogin = () => {
+    if (loginEmail === 'admin123' && loginPassword === 'admin123') {
+      setUser({ type: 'admin' });
+      setView('admin');
+      return;
+    }
+
+    const prestataire = prestataires.find(
+      p => p.email === loginEmail && p.password === loginPassword
+    );
+
+    if (prestataire) {
+      setUser({ type: 'prestataire', id: prestataire.id });
+      setView('prestataire-dashboard');
+    } else {
+      alert('Email ou password incorrect');
+    }
+
+    setLoginEmail('');
+    setLoginPassword('');
   };
 
-  const buttonStyle = {
-    padding: '10px 20px',
-    background: colors.primary,
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '14px'
+  const handleLogout = () => {
+    setUser(null);
+    setView('home');
+    setSelectedPrestataire(null);
   };
 
-  const inputStyle = {
-    width: '100%',
-    padding: '10px',
-    border: `2px solid ${colors.secondary}`,
-    borderRadius: '6px',
-    marginBottom: '10px',
-    fontFamily: 'inherit',
-    fontSize: '14px'
+  const handleSearch = () => {
+    setSelectedPrestataire(null);
+    setView('search-results');
   };
 
-  // ============ TOP RIGHT MENU ============
-  const TopMenu = () => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', background: colors.primary, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-      <h1 style={{ color: 'white', margin: 0, cursor: 'pointer', fontSize: '28px' }} onClick={() => { setView('home'); setCity(''); }}>✨ Rendez Vous</h1>
-      <div style={{ display: 'flex', gap: '10px' }}>
-        {currentUser ? (
-          <>
-            <span style={{ color: 'white', fontWeight: 'bold' }}>👋 {currentUser.name}</span>
-            <button onClick={() => { setCurrentUser(null); setView('home'); setCity(''); }} style={{ background: colors.accent, color: colors.dark, border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Déconnexion</button>
-          </>
-        ) : (
-          <>
-            <button onClick={() => setView('prestataire-login')} style={{ background: 'transparent', color: 'white', border: '2px solid white', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>💇 Prestataire</button>
-            <button onClick={() => setView('admin-login')} style={{ background: colors.accent, color: colors.dark, border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>⚙️ Admin</button>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  const handlePhotoUpload = (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setNewPhotos([...newPhotos, {
+          id: Date.now() + Math.random(),
+          data: event.target.result,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
-  // ============ HOME ============
+  const handleAddPhotos = () => {
+    if (newPhotos.length === 0) return;
+
+    const updatedPrestataires = prestataires.map(p => {
+      if (p.id === user.id) {
+        return {
+          ...p,
+          photos: [...(p.photos || []), ...newPhotos],
+        };
+      }
+      return p;
+    });
+
+    setPrestataires(updatedPrestataires);
+    setNewPhotos([]);
+  };
+
+  const handleDeletePhoto = (photoId) => {
+    const updatedPrestataires = prestataires.map(p => {
+      if (p.id === user.id) {
+        return {
+          ...p,
+          photos: p.photos.filter(ph => ph.id !== photoId),
+        };
+      }
+      return p;
+    });
+    setPrestataires(updatedPrestataires);
+  };
+
+  const handleAddService = () => {
+    if (!newService.name || !newService.price) return;
+
+    const updatedPrestataires = prestataires.map(p => {
+      if (p.id === user.id) {
+        return {
+          ...p,
+          services: [...p.services, {
+            id: Date.now(),
+            name: newService.name,
+            price: parseFloat(newService.price),
+          }],
+        };
+      }
+      return p;
+    });
+
+    setPrestataires(updatedPrestataires);
+    setNewService({ name: '', price: '' });
+  };
+
+  const handleApprovePrestataire = (id) => {
+    const updatedPrestataires = prestataires.map(p => {
+      if (p.id === id) {
+        return { ...p, approved: true };
+      }
+      return p;
+    });
+    setPrestataires(updatedPrestataires);
+  };
+
+  const handleRejectPrestataire = (id) => {
+    setPrestataires(prestataires.filter(p => p.id !== id));
+  };
+
+  const handleBookService = () => {
+    if (!reservationDate || !reservationTime || !reservationName || !reservationPhone || !selectedService) {
+      alert('Remplissez tous les champs');
+      return;
+    }
+
+    const updatedPrestataires = prestataires.map(p => {
+      if (p.id === selectedPrestataire.id) {
+        return {
+          ...p,
+          reservations: [...p.reservations, {
+            id: Date.now(),
+            date: reservationDate,
+            time: reservationTime,
+            clientName: reservationName,
+            clientPhone: reservationPhone,
+            service: selectedService.name,
+            price: selectedService.price,
+            status: 'pending',
+          }],
+        };
+      }
+      return p;
+    });
+
+    setPrestataires(updatedPrestataires);
+    setShowPayment(true);
+  };
+
+  // ===== STYLES =====
+  const styles = {
+    container: {
+      fontFamily: 'Arial, sans-serif',
+      backgroundColor: '#ffffff',
+      color: '#000000',
+      minHeight: '100vh',
+      padding: '0',
+    },
+    header: {
+      backgroundColor: '#000000',
+      color: '#ffffff',
+      padding: '15px 20px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      position: 'sticky',
+      top: 0,
+      zIndex: 100,
+    },
+    logo: {
+      fontSize: '24px',
+      fontWeight: 'bold',
+      cursor: 'pointer',
+    },
+    menuRight: {
+      display: 'flex',
+      gap: '15px',
+      alignItems: 'center',
+    },
+    btn: {
+      padding: '10px 20px',
+      borderRadius: '4px',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      transition: 'all 0.3s',
+    },
+    btnPrimary: {
+      backgroundColor: '#000000',
+      color: '#ffffff',
+      border: '1px solid #ffffff',
+    },
+    btnSecondary: {
+      backgroundColor: '#ffffff',
+      color: '#000000',
+      border: '1px solid #000000',
+    },
+    input: {
+      padding: '10px',
+      border: '1px solid #000000',
+      borderRadius: '4px',
+      fontSize: '14px',
+      marginBottom: '10px',
+      width: '100%',
+      boxSizing: 'border-box',
+    },
+    card: {
+      backgroundColor: '#f9f9f9',
+      border: '1px solid #000000',
+      borderRadius: '4px',
+      padding: '15px',
+      marginBottom: '15px',
+      cursor: 'pointer',
+      transition: 'all 0.3s',
+    },
+    cardHover: {
+      backgroundColor: '#f0f0f0',
+    },
+    content: {
+      maxWidth: '1200px',
+      margin: '0 auto',
+      padding: '20px',
+    },
+    table: {
+      width: '100%',
+      borderCollapse: 'collapse',
+      marginTop: '20px',
+    },
+    th: {
+      backgroundColor: '#000000',
+      color: '#ffffff',
+      padding: '10px',
+      textAlign: 'left',
+      borderRadius: '4px',
+    },
+    td: {
+      padding: '10px',
+      borderBottom: '1px solid #cccccc',
+    },
+    tab: {
+      padding: '10px 20px',
+      backgroundColor: '#f0f0f0',
+      border: '1px solid #000000',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      marginRight: '5px',
+      fontSize: '14px',
+      fontWeight: 'bold',
+    },
+    tabActive: {
+      backgroundColor: '#000000',
+      color: '#ffffff',
+    },
+  };
+
+  // ===== RENDER PAGES =====
+
+  // PAGE ACCUEIL
   if (view === 'home') {
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: `linear-gradient(135deg, ${colors.secondary} 0%, ${colors.light} 100%)`, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 80px)' }}>
-          <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontSize: '56px', color: colors.primary, marginBottom: '40px' }}>✨ Rendez Vous</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', maxWidth: '700px' }}>
-              <button onClick={() => setView('client')} style={{ ...buttonStyle, background: colors.primary, padding: '20px' }}>👤 Je suis CLIENT</button>
-            </div>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => setView('login')}
+            >
+              Connexion
+            </button>
+          </div>
+        </header>
+
+        <div style={styles.content}>
+          <div style={{ textAlign: 'center', marginTop: '50px', marginBottom: '50px' }}>
+            <h1>Rendez Vous</h1>
+            <p style={{ fontSize: '18px', color: '#666' }}>Trouvez et réservez vos prestataires</p>
+          </div>
+
+          <div style={{
+            backgroundColor: '#f9f9f9',
+            padding: '30px',
+            borderRadius: '4px',
+            border: '1px solid #000000',
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}>
+            <h2>Rechercher un prestataire</h2>
+            <input
+              type="text"
+              placeholder="Ville"
+              style={styles.input}
+              value={searchCity}
+              onChange={(e) => setSearchCity(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Nom du prestataire"
+              style={styles.input}
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+            />
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary, width: '100%' }}
+              onClick={handleSearch}
+            >
+              Rechercher
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ============ CLIENT SEARCH ============
-  if (view === 'client') {
-    const filtered = salons.filter(s => {
-      const matchCity = s.city.toLowerCase().includes(city.toLowerCase());
-      const matchName = s.name.toLowerCase().includes(city.toLowerCase());
-      return (matchCity || matchName) && s.status === 'approved';
+  // PAGE LOGIN
+  if (view === 'login') {
+    return (
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo} onClick={() => setView('home')}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={() => setView('home')}
+            >
+              Accueil
+            </button>
+          </div>
+        </header>
+
+        <div style={styles.content}>
+          <div style={{
+            backgroundColor: '#f9f9f9',
+            padding: '30px',
+            borderRadius: '4px',
+            border: '1px solid #000000',
+            maxWidth: '400px',
+            margin: '50px auto',
+          }}>
+            <h2>Connexion</h2>
+            <input
+              type="email"
+              placeholder="Email"
+              style={styles.input}
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              style={styles.input}
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+            />
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary, width: '100%' }}
+              onClick={handleLogin}
+            >
+              Se connecter
+            </button>
+
+            <p style={{ marginTop: '20px', fontSize: '12px', color: '#666' }}>
+              Comptes de test:
+              <br />
+              elegance@salon.fr / pass123
+              <br />
+              marais@salon.fr / pass123
+              <br />
+              lyon@salon.fr / pass123
+              <br />
+              admin123 / admin123
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PAGE RÉSULTATS RECHERCHE
+  if (view === 'search-results') {
+    const filtered = prestataires.filter(p => {
+      const matchCity = !searchCity || p.city.toLowerCase().includes(searchCity.toLowerCase());
+      const matchName = !searchName || p.name.toLowerCase().includes(searchName.toLowerCase());
+      return matchCity && matchName && p.approved;
     });
 
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-          <h2 style={{ color: colors.primary, marginBottom: '20px' }}>Chercher un prestataire</h2>
-          
-          <div style={{ background: 'white', padding: '20px', borderRadius: '8px', marginBottom: '30px', display: 'flex', gap: '10px' }}>
-            <input type="text" placeholder="Ville ou nom du prestataire..." value={city} onChange={(e) => setCity(e.target.value)} style={{ ...inputStyle, flex: 1, marginBottom: 0 }} />
-            <button style={{ ...buttonStyle }}>🔍 Chercher</button>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo} onClick={() => setView('home')}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={() => setView('home')}
+            >
+              Retour
+            </button>
           </div>
+        </header>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-            {filtered.map(s => (
-              <div key={s.id} style={{ background: 'white', borderRadius: '8px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ color: colors.primary, marginBottom: '10px' }}>{s.name}</h3>
-                <p style={{ color: colors.dark, marginBottom: '5px' }}>📍 {s.city}</p>
-                <p style={{ color: colors.dark, marginBottom: '5px' }}>⭐ {s.rating} ({s.reviews} avis)</p>
-                <p style={{ fontSize: '12px', color: colors.dark, marginTop: '10px' }}>{s.description}</p>
-                <button onClick={() => setView(`salon-detail-${s.id}`)} style={{ ...buttonStyle, width: '100%', marginTop: '15px' }}>Voir le prestataire</button>
+        <div style={styles.content}>
+          <h2>Résultats ({filtered.length})</h2>
+          {filtered.length === 0 ? (
+            <p>Aucun prestataire trouvé</p>
+          ) : (
+            filtered.map(p => (
+              <div
+                key={p.id}
+                style={styles.card}
+                onClick={() => {
+                  setSelectedPrestataire(p);
+                  setView('prestataire-detail');
+                }}
+              >
+                <h3>{p.name}</h3>
+                <p>{p.city}</p>
+                <p>{p.services.length} services</p>
               </div>
-            ))}
-          </div>
-
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '40px', color: colors.dark }}>
-              <p style={{ fontSize: '18px' }}>Aucun prestataire trouvé</p>
-            </div>
+            ))
           )}
         </div>
       </div>
     );
   }
 
-  // ============ SALON DETAIL ============
-  if (view.startsWith('salon-detail-')) {
-    const salonId = parseInt(view.split('-')[2]);
-    const salon = salons.find(s => s.id === salonId);
+  // PAGE DÉTAIL PRESTATAIRE
+  if (view === 'prestataire-detail') {
+    if (!selectedPrestataire) return null;
 
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
-          <div style={{ background: 'white', borderRadius: '8px', padding: '30px', marginBottom: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ color: colors.primary, marginBottom: '15px' }}>{salon.name}</h2>
-            <p style={{ color: colors.dark, marginBottom: '5px' }}>📍 {salon.address}</p>
-            <p style={{ color: colors.dark, marginBottom: '5px' }}>📞 {salon.phone}</p>
-            <p style={{ color: colors.dark, marginBottom: '15px' }}>⭐ {salon.rating}/5 ({salon.reviews} avis)</p>
-            <p style={{ color: colors.dark, fontSize: '14px', lineHeight: '1.6' }}>{salon.description}</p>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo} onClick={() => setView('home')}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={() => {
+                setView('search-results');
+                setSelectedPrestataire(null);
+              }}
+            >
+              Retour
+            </button>
           </div>
+        </header>
 
-          <div style={{ background: 'white', borderRadius: '8px', padding: '30px', marginBottom: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Services disponibles</h3>
-            <div style={{ display: 'grid', gap: '15px' }}>
-              {salon.services.map(service => (
-                <div key={service.id} style={{ border: `2px solid ${colors.secondary}`, borderRadius: '6px', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ color: colors.primary, fontWeight: 'bold', margin: 0 }}>{service.image} {service.name}</p>
-                    <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0 0 0' }}>{service.duration}min - {service.price}€</p>
-                  </div>
-                  <button onClick={() => { setSelectedService(service); setView(`booking-${salonId}`); }} style={{ ...buttonStyle }}>Réserver</button>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div style={styles.content}>
+          <h2>{selectedPrestataire.name}</h2>
+          <p>{selectedPrestataire.city}</p>
 
-          {salon.photos.length > 0 && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Portfolio</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '15px' }}>
-                {salon.photos.map((photo, idx) => (
-                  <div key={idx} style={{ background: colors.secondary, borderRadius: '6px', height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.dark, fontSize: '60px' }}>
-                    {photo}
+          {/* PHOTOS */}
+          <div style={{ marginTop: '30px', marginBottom: '30px' }}>
+            <h3>Photos</h3>
+            {selectedPrestataire.photos && selectedPrestataire.photos.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
+                {selectedPrestataire.photos.map(photo => (
+                  <div key={photo.id} style={{ width: '100%', height: '200px', overflow: 'hidden', borderRadius: '4px', border: '1px solid #000' }}>
+                    <img src={photo.data} alt="photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+            ) : (
+              <p>Pas de photos</p>
+            )}
+          </div>
 
-  // ============ BOOKING ============
-  if (view.startsWith('booking-')) {
-    const salonId = parseInt(view.split('-')[1]);
-    const salon = salons.find(s => s.id === salonId);
-
-    return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px' }}>
-          <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ color: colors.primary, marginBottom: '20px' }}>Réserver chez {salon.name}</h2>
-            <p style={{ color: colors.dark, marginBottom: '20px' }}>Service: <strong>{selectedService?.name}</strong> ({selectedService?.price}€)</p>
-
-            <input type="text" placeholder="Votre nom" value={clientName} onChange={(e) => setClientName(e.target.value)} style={inputStyle} />
-            <input type="tel" placeholder="Votre téléphone" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} style={inputStyle} />
-            <input type="date" value={bookingDate} onChange={(e) => setBookingDate(e.target.value)} style={inputStyle} />
-            <input type="time" value={bookingTime} onChange={(e) => setBookingTime(e.target.value)} style={inputStyle} />
-
-            <button onClick={() => {
-              if (clientName && clientPhone && bookingDate) {
-                const newBooking = { id: Date.now(), clientName, clientPhone, service: selectedService.name, date: bookingDate, time: bookingTime, status: 'pending' };
-                setSalons(salons.map(s => s.id === salonId ? { ...s, bookings: [...s.bookings, newBooking] } : s));
-                alert('✅ Réservation enregistrée!');
-                setView('client');
-                setCity('');
-              } else {
-                alert('Remplissez tous les champs!');
-              }
-            }} style={{ ...buttonStyle, width: '100%', marginTop: '20px' }}>Confirmer</button>
+          {/* SERVICES */}
+          <div style={{ marginTop: '30px' }}>
+            <h3>Services</h3>
+            {selectedPrestataire.services.map(service => (
+              <div key={service.id} style={{ ...styles.card, cursor: 'pointer', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{service.name}</span>
+                  <span>{service.price} EUR</span>
+                </div>
+                <button
+                  style={{ ...styles.btn, ...styles.btnPrimary, marginTop: '10px', width: '100%' }}
+                  onClick={() => {
+                    setSelectedService(service);
+                    setView('reservation');
+                  }}
+                >
+                  Réserver
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
     );
   }
 
-  // ============ PRESTATAIRE LOGIN ============
-  if (view === 'prestataire-login') {
+  // PAGE RÉSERVATION
+  if (view === 'reservation') {
+    if (!selectedPrestataire || !selectedService) return null;
+
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 80px)' }}>
-          <div style={{ background: 'white', borderRadius: '8px', padding: '40px', maxWidth: '400px', width: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ color: colors.primary, marginBottom: '30px', textAlign: 'center' }}>Connexion Prestataire</h2>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo} onClick={() => setView('home')}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={() => {
+                setView('prestataire-detail');
+                setSelectedService(null);
+              }}
+            >
+              Retour
+            </button>
+          </div>
+        </header>
 
-            <input type="email" placeholder="Email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} style={inputStyle} />
-            <input type="password" placeholder="Mot de passe" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} style={inputStyle} />
+        <div style={styles.content}>
+          <div style={{
+            backgroundColor: '#f9f9f9',
+            padding: '30px',
+            borderRadius: '4px',
+            border: '1px solid #000000',
+            maxWidth: '500px',
+            margin: '30px auto',
+          }}>
+            <h2>{selectedPrestataire.name}</h2>
+            <p>{selectedService.name} - {selectedService.price} EUR</p>
 
-            <button onClick={() => {
-              const salon = salons.find(s => s.email === loginEmail && s.password === loginPassword);
-              if (salon) {
-                setCurrentUser(salon);
-                setView(`prestataire-dashboard-${salon.id}`);
-                setLoginEmail('');
-                setLoginPassword('');
-              } else {
-                alert('Email ou mot de passe incorrect');
-              }
-            }} style={{ ...buttonStyle, width: '100%', marginTop: '20px' }}>Se connecter</button>
-
-            <div style={{ textAlign: 'center', marginTop: '20px', paddingTop: '20px', borderTop: `2px solid ${colors.secondary}` }}>
-              <p style={{ color: colors.dark, marginBottom: '10px' }}>Pas de compte?</p>
-              <button onClick={() => setView('prestataire-register')} style={{ ...buttonStyle, width: '100%', background: colors.accent }}>Créer un compte</button>
-            </div>
+            {!showPayment ? (
+              <>
+                <input
+                  type="date"
+                  style={styles.input}
+                  value={reservationDate}
+                  onChange={(e) => setReservationDate(e.target.value)}
+                />
+                <input
+                  type="time"
+                  style={styles.input}
+                  value={reservationTime}
+                  onChange={(e) => setReservationTime(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Votre nom"
+                  style={styles.input}
+                  value={reservationName}
+                  onChange={(e) => setReservationName(e.target.value)}
+                />
+                <input
+                  type="tel"
+                  placeholder="Votre téléphone"
+                  style={styles.input}
+                  value={reservationPhone}
+                  onChange={(e) => setReservationPhone(e.target.value)}
+                />
+                <button
+                  style={{ ...styles.btn, ...styles.btnPrimary, width: '100%' }}
+                  onClick={handleBookService}
+                >
+                  Confirmer et Payer
+                </button>
+              </>
+            ) : (
+              <div style={{ backgroundColor: '#ffffff', padding: '20px', border: '1px solid #000', borderRadius: '4px' }}>
+                <h3>Paiement Stripe</h3>
+                <p>Montant: {selectedService.price} EUR</p>
+                <button
+                  style={{ ...styles.btn, ...styles.btnPrimary, width: '100%', marginBottom: '10px' }}
+                  onClick={() => alert('Intégration Stripe à venir. Paiement simulé.')}
+                >
+                  Payer maintenant
+                </button>
+                <button
+                  style={{ ...styles.btn, ...styles.btnSecondary, width: '100%' }}
+                  onClick={() => {
+                    setShowPayment(false);
+                    setReservationDate('');
+                    setReservationTime('');
+                    setReservationName('');
+                    setReservationPhone('');
+                    setSelectedService(null);
+                    setView('home');
+                  }}
+                >
+                  Annuler
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // ============ PRESTATAIRE REGISTER ============
-  if (view === 'prestataire-register') {
+  // DASHBOARD PRESTATAIRE
+  if (view === 'prestataire-dashboard') {
+    const currentPrestataire = prestataires.find(p => p.id === user.id);
+    if (!currentPrestataire) return null;
+
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 80px)' }}>
-          <div style={{ background: 'white', borderRadius: '8px', padding: '40px', maxWidth: '400px', width: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ color: colors.primary, marginBottom: '30px', textAlign: 'center' }}>Créer un compte</h2>
-
-            <input type="text" placeholder="Nom du salon" value={regName} onChange={(e) => setRegName(e.target.value)} style={inputStyle} />
-            <input type="email" placeholder="Email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} style={inputStyle} />
-            <input type="password" placeholder="Mot de passe" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} style={inputStyle} />
-            <input type="text" placeholder="Ville" value={regCity} onChange={(e) => setRegCity(e.target.value)} style={inputStyle} />
-
-            <button onClick={() => {
-              if (regName && regEmail && regPassword && regCity) {
-                const newId = Math.max(...salons.map(s => s.id), 0) + 1;
-                const newSalon = {
-                  id: newId,
-                  name: regName,
-                  email: regEmail,
-                  password: regPassword,
-                  city: regCity,
-                  address: '',
-                  phone: '',
-                  description: '',
-                  rating: 4.5,
-                  reviews: 0,
-                  services: [],
-                  staff: [],
-                  photos: [],
-                  bookings: [],
-                  status: 'pending'
-                };
-                setSalons([...salons, newSalon]);
-                alert('✅ Compte créé! Veuillez vous connecter.');
-                setView('prestataire-login');
-              } else {
-                alert('Remplissez tous les champs!');
-              }
-            }} style={{ ...buttonStyle, width: '100%', marginTop: '20px', background: colors.accent }}>Créer</button>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <span>{currentPrestataire.name}</span>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={handleLogout}
+            >
+              Déconnexion
+            </button>
           </div>
-        </div>
-      </div>
-    );
-  }
+        </header>
 
-  // ============ PRESTATAIRE DASHBOARD ============
-  if (view.startsWith('prestataire-dashboard-')) {
-    const salonId = parseInt(view.split('-')[2]);
-    const salon = salons.find(s => s.id === salonId);
-
-    if (!salon) return <div>Erreur</div>;
-
-    return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px' }}>
-          <h1 style={{ color: colors.primary }}>Dashboard - {salon.name}</h1>
-
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
-            {['services', 'staff', 'photos', 'reservations', 'profil'].map(tab => (
-              <button key={tab} onClick={() => setDashTab(tab)} style={{ ...buttonStyle, background: dashTab === tab ? colors.primary : colors.secondary, color: dashTab === tab ? 'white' : colors.dark }}>
-                {tab === 'services' && '💇 Services'}
-                {tab === 'staff' && '👥 Équipe'}
-                {tab === 'photos' && '🖼️ Photos'}
-                {tab === 'reservations' && '📅 Réservations'}
-                {tab === 'profil' && '📋 Profil'}
+        <div style={styles.content}>
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '20px' }}>
+            {['services', 'photos', 'reservations', 'profile'].map(tab => (
+              <button
+                key={tab}
+                style={{
+                  ...styles.tab,
+                  ...(currentTab === tab ? styles.tabActive : {}),
+                }}
+                onClick={() => setCurrentTab(tab)}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </div>
 
           {/* SERVICES */}
-          {dashTab === 'services' && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Mes prestations</h3>
-
-              <div style={{ marginBottom: '30px', paddingBottom: '30px', borderBottom: `2px solid ${colors.secondary}` }}>
-                <h4 style={{ color: colors.dark, marginBottom: '15px' }}>Ajouter une prestation</h4>
-                <input type="text" placeholder="Nom (ex: Coupe femme)" value={newService.name} onChange={(e) => setNewService({ ...newService, name: e.target.value })} style={inputStyle} />
-                <input type="number" placeholder="Durée (min)" value={newService.duration} onChange={(e) => setNewService({ ...newService, duration: e.target.value })} style={inputStyle} />
-                <input type="number" placeholder="Prix (€)" value={newService.price} onChange={(e) => setNewService({ ...newService, price: e.target.value })} style={inputStyle} />
-                <input type="text" placeholder="Emoji (ex: ✂️)" value={newService.image} onChange={(e) => setNewService({ ...newService, image: e.target.value })} style={inputStyle} />
-                <button onClick={() => {
-                  if (newService.name && newService.duration && newService.price) {
-                    setSalons(salons.map(s => s.id === salonId ? {
-                      ...s,
-                      services: [...s.services, { id: Date.now(), ...newService }]
-                    } : s));
-                    setNewService({ name: '', duration: '', price: '', image: '✂️' });
-                    alert('✅ Prestation ajoutée!');
-                  }
-                }} style={{ ...buttonStyle, width: '100%' }}>Ajouter</button>
+          {currentTab === 'services' && (
+            <div>
+              <h3>Services</h3>
+              <div style={{ marginBottom: '20px' }}>
+                <input
+                  type="text"
+                  placeholder="Nom du service"
+                  style={styles.input}
+                  value={newService.name}
+                  onChange={(e) => setNewService({ ...newService, name: e.target.value })}
+                />
+                <input
+                  type="number"
+                  placeholder="Prix (EUR)"
+                  style={styles.input}
+                  value={newService.price}
+                  onChange={(e) => setNewService({ ...newService, price: e.target.value })}
+                />
+                <button
+                  style={{ ...styles.btn, ...styles.btnPrimary, width: '100%' }}
+                  onClick={handleAddService}
+                >
+                  Ajouter
+                </button>
               </div>
 
-              <div>
-                <h4 style={{ color: colors.dark, marginBottom: '15px' }}>Vos prestations</h4>
-                {salon.services.map(service => (
-                  <div key={service.id} style={{ background: colors.light, border: `2px solid ${colors.secondary}`, borderRadius: '6px', padding: '15px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <p style={{ color: colors.primary, fontWeight: 'bold', margin: 0 }}>{service.image} {service.name}</p>
-                      <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0 0 0' }}>{service.duration}min - {service.price}€</p>
-                    </div>
-                    <button onClick={() => {
-                      setSalons(salons.map(s => s.id === salonId ? {
-                        ...s,
-                        services: s.services.filter(srv => srv.id !== service.id)
-                      } : s));
-                    }} style={{ ...buttonStyle, background: '#E74C3C' }}>Supprimer</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* STAFF */}
-          {dashTab === 'staff' && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Mon équipe</h3>
-
-              <div style={{ marginBottom: '30px', paddingBottom: '30px', borderBottom: `2px solid ${colors.secondary}` }}>
-                <input type="text" placeholder="Nom" value={newStaff.name} onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })} style={inputStyle} />
-                <input type="text" placeholder="Spécialité" value={newStaff.speciality} onChange={(e) => setNewStaff({ ...newStaff, speciality: e.target.value })} style={inputStyle} />
-                <button onClick={() => {
-                  if (newStaff.name && newStaff.speciality) {
-                    setSalons(salons.map(s => s.id === salonId ? {
-                      ...s,
-                      staff: [...s.staff, { id: Date.now(), ...newStaff, rating: 4.5 }]
-                    } : s));
-                    setNewStaff({ name: '', speciality: '' });
-                    alert('✅ Membre ajouté!');
-                  }
-                }} style={{ ...buttonStyle, width: '100%' }}>Ajouter</button>
-              </div>
-
-              <div>
-                {salon.staff.map(member => (
-                  <div key={member.id} style={{ background: colors.light, border: `2px solid ${colors.secondary}`, borderRadius: '6px', padding: '15px', marginBottom: '10px' }}>
-                    <p style={{ color: colors.primary, fontWeight: 'bold', margin: 0 }}>👤 {member.name}</p>
-                    <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0 0 0' }}>{member.speciality}</p>
-                  </div>
-                ))}
-              </div>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Service</th>
+                    <th style={styles.th}>Prix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentPrestataire.services.map(service => (
+                    <tr key={service.id}>
+                      <td style={styles.td}>{service.name}</td>
+                      <td style={styles.td}>{service.price} EUR</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
           {/* PHOTOS */}
-          {dashTab === 'photos' && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Portfolio</h3>
-
-              <div style={{ marginBottom: '30px', paddingBottom: '30px', borderBottom: `2px solid ${colors.secondary}` }}>
-                <p style={{ fontSize: '12px', color: colors.dark, marginBottom: '10px' }}>Tapez un emoji (ex: 💇 💅 ✨)</p>
-                <input type="text" placeholder="Photo (emoji)" maxLength="2" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} style={inputStyle} />
-                <button onClick={() => {
-                  if (photoUrl) {
-                    setSalons(salons.map(s => s.id === salonId ? {
-                      ...s,
-                      photos: [...s.photos, photoUrl]
-                    } : s));
-                    setPhotoUrl('');
-                    alert('✅ Photo ajoutée!');
-                  }
-                }} style={{ ...buttonStyle, width: '100%' }}>Ajouter</button>
+          {currentTab === 'photos' && (
+            <div>
+              <h3>Galerie Photos</h3>
+              <div style={{ marginBottom: '20px' }}>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  style={{ marginBottom: '10px' }}
+                />
+                {newPhotos.length > 0 && (
+                  <>
+                    <p>Aperçu: {newPhotos.length} image(s)</p>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnPrimary, marginRight: '10px' }}
+                      onClick={handleAddPhotos}
+                    >
+                      Ajouter les photos
+                    </button>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnSecondary }}
+                      onClick={() => setNewPhotos([])}
+                    >
+                      Annuler
+                    </button>
+                  </>
+                )}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '10px' }}>
-                {salon.photos.map((photo, idx) => (
-                  <div key={idx} style={{ background: colors.secondary, borderRadius: '6px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px', cursor: 'pointer', position: 'relative' }}>
-                    {photo}
-                    <button onClick={() => {
-                      setSalons(salons.map(s => s.id === salonId ? {
-                        ...s,
-                        photos: s.photos.filter((_, i) => i !== idx)
-                      } : s));
-                    }} style={{ position: 'absolute', top: '-10px', right: '-10px', background: '#E74C3C', color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', padding: 0 }}>×</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* RESERVATIONS */}
-          {dashTab === 'reservations' && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Réservations</h3>
-
-              {salon.bookings.length === 0 ? (
-                <p style={{ color: colors.dark, textAlign: 'center', padding: '40px' }}>Aucune réservation</p>
+              {currentPrestataire.photos && currentPrestataire.photos.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '15px' }}>
+                  {currentPrestataire.photos.map(photo => (
+                    <div key={photo.id} style={{ position: 'relative' }}>
+                      <img src={photo.data} alt="photo" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #000' }} />
+                      <button
+                        style={{
+                          position: 'absolute',
+                          top: '5px',
+                          right: '5px',
+                          backgroundColor: '#000000',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: '30px',
+                          height: '30px',
+                          cursor: 'pointer',
+                          fontSize: '16px',
+                        }}
+                        onClick={() => handleDeletePhoto(photo.id)}
+                      >
+                        X
+                      </button>
+                    </div>
+                  ))}
+                </div>
               ) : (
-                salon.bookings.map(booking => (
-                  <div key={booking.id} style={{ background: colors.light, border: `2px solid ${colors.secondary}`, borderRadius: '6px', padding: '15px', marginBottom: '10px' }}>
-                    <p style={{ color: colors.primary, fontWeight: 'bold', margin: '0 0 5px 0' }}>📅 {booking.date} à {booking.time}</p>
-                    <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0' }}>Service: {booking.service}</p>
-                    <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0' }}>Client: {booking.clientName} ({booking.clientPhone})</p>
-                  </div>
-                ))
+                <p>Aucune photo</p>
               )}
             </div>
           )}
 
-          {/* PROFIL */}
-          {dashTab === 'profil' && (
-            <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Profil</h3>
-              <p><strong>Nom:</strong> {salon.name}</p>
-              <p><strong>Email:</strong> {salon.email}</p>
-              <p><strong>Ville:</strong> {salon.city}</p>
-              <p style={{ fontSize: '12px', color: '#27AE60', marginTop: '30px' }}>✅ Statut: {salon.status === 'approved' ? 'Approuvé' : 'En attente'}</p>
+          {/* RÉSERVATIONS */}
+          {currentTab === 'reservations' && (
+            <div>
+              <h3>Réservations</h3>
+              {currentPrestataire.reservations && currentPrestataire.reservations.length > 0 ? (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Date</th>
+                      <th style={styles.th}>Heure</th>
+                      <th style={styles.th}>Client</th>
+                      <th style={styles.th}>Service</th>
+                      <th style={styles.th}>Prix</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentPrestataire.reservations.map(res => (
+                      <tr key={res.id}>
+                        <td style={styles.td}>{res.date}</td>
+                        <td style={styles.td}>{res.time}</td>
+                        <td style={styles.td}>{res.clientName}</td>
+                        <td style={styles.td}>{res.service}</td>
+                        <td style={styles.td}>{res.price} EUR</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>Aucune réservation</p>
+              )}
+            </div>
+          )}
+
+          {/* PROFILE */}
+          {currentTab === 'profile' && (
+            <div>
+              <h3>Profil</h3>
+              <p>Nom: {currentPrestataire.name}</p>
+              <p>Ville: {currentPrestataire.city}</p>
+              <p>Email: {currentPrestataire.email}</p>
+              <p>Statut: {currentPrestataire.approved ? 'Approuvé' : 'En attente'}</p>
             </div>
           )}
         </div>
@@ -485,63 +861,74 @@ export default function App() {
     );
   }
 
-  // ============ ADMIN LOGIN ============
-  if (view === 'admin-login') {
+  // ADMIN PANEL
+  if (view === 'admin') {
     return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 80px)' }}>
-          <div style={{ background: 'white', borderRadius: '8px', padding: '40px', maxWidth: '400px', width: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ color: colors.primary, marginBottom: '30px', textAlign: 'center' }}>Admin</h2>
-
-            <input type="password" placeholder="Mot de passe" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} style={inputStyle} />
-
-            <button onClick={() => {
-              if (adminPass === 'admin123') {
-                setView('admin-dashboard');
-                setAdminPass('');
-              } else {
-                alert('Incorrect');
-              }
-            }} style={{ ...buttonStyle, width: '100%', marginTop: '20px' }}>Se connecter</button>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.logo}>Rendez Vous</div>
+          <div style={styles.menuRight}>
+            <span>ADMIN</span>
+            <button
+              style={{ ...styles.btn, ...styles.btnSecondary }}
+              onClick={handleLogout}
+            >
+              Déconnexion
+            </button>
           </div>
-        </div>
-      </div>
-    );
-  }
+        </header>
 
-  // ============ ADMIN DASHBOARD ============
-  if (view === 'admin-dashboard') {
-    return (
-      <div style={{ fontFamily: 'Arial, sans-serif', background: colors.light, minHeight: '100vh' }}>
-        <TopMenu />
-        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px' }}>
-          <h1 style={{ color: colors.primary }}>Admin Panel</h1>
+        <div style={styles.content}>
+          <h2>Admin Panel</h2>
+          
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            {['pending', 'approved', 'all'].map(filter => (
+              <button
+                key={filter}
+                style={{
+                  ...styles.btn,
+                  ...(adminFilter === filter ? styles.btnPrimary : styles.btnSecondary),
+                }}
+                onClick={() => setAdminFilter(filter)}
+              >
+                {filter.charAt(0).toUpperCase() + filter.slice(1)}
+              </button>
+            ))}
+          </div>
 
-          <div style={{ background: 'white', borderRadius: '8px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ color: colors.primary, marginBottom: '20px' }}>Prestataires ({salons.length})</h3>
-
-            {salons.map(s => (
-              <div key={s.id} style={{ background: colors.light, border: `2px solid ${colors.secondary}`, borderRadius: '6px', padding: '15px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <p style={{ color: colors.primary, fontWeight: 'bold', margin: 0 }}>{s.name}</p>
-                  <p style={{ color: colors.dark, fontSize: '12px', margin: '5px 0 0 0' }}>{s.city} | {s.email}</p>
-                </div>
-                {s.status === 'pending' && (
-                  <button onClick={() => {
-                    setSalons(salons.map(x => x.id === s.id ? { ...x, status: 'approved' } : x));
-                  }} style={{ ...buttonStyle, background: '#27AE60' }}>Approuver</button>
-                )}
-                {s.status === 'approved' && (
-                  <span style={{ color: '#27AE60', fontWeight: 'bold' }}>✅ Approuvé</span>
+          {prestataires
+            .filter(p => {
+              if (adminFilter === 'pending') return !p.approved;
+              if (adminFilter === 'approved') return p.approved;
+              return true;
+            })
+            .map(p => (
+              <div key={p.id} style={styles.card}>
+                <h3>{p.name}</h3>
+                <p>{p.city} | {p.email}</p>
+                <p>Statut: {p.approved ? 'Approuvé' : 'En attente'}</p>
+                {!p.approved && (
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnPrimary }}
+                      onClick={() => handleApprovePrestataire(p.id)}
+                    >
+                      Approuver
+                    </button>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnSecondary }}
+                      onClick={() => handleRejectPrestataire(p.id)}
+                    >
+                      Rejeter
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
-          </div>
         </div>
       </div>
     );
   }
 
-  return <div>Erreur 404</div>;
+  return null;
 }
