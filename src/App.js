@@ -533,7 +533,7 @@ export default function RendezVousApp() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
                 {selectedPrestataire.photos.map(photo => (
                   <div key={photo.id} style={{ width: '100%', height: '200px', overflow: 'hidden', borderRadius: '4px', border: '1px solid #000' }}>
-                    <img src={photo.data} alt="photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={photo.data} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
                 ))}
               </div>
@@ -785,7 +785,7 @@ export default function RendezVousApp() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '15px' }}>
                   {currentPrestataire.photos.map(photo => (
                     <div key={photo.id} style={{ position: 'relative' }}>
-                      <img src={photo.data} alt="photo" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #000' }} />
+                      <img src={photo.data} alt="" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #000' }} />
                       <button
                         style={{
                           position: 'absolute',
