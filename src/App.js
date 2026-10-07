@@ -362,7 +362,8 @@ const RendezVous = () => {
 
     const handleSubmit = (e) => {
       e.preventDefault();
-      if (handleLogin(email, password, isPrestataire ? 'prestataire' : 'client')) {
+      const role = email === 'admin123' ? 'admin' : isPrestataire ? 'prestataire' : 'client';
+      if (handleLogin(email, password, role)) {
         setEmail('');
         setPassword('');
       } else {
@@ -384,10 +385,11 @@ const RendezVous = () => {
             <div style={styles.formGroup}>
               <label style={styles.label}>Email</label>
               <input
-                type="email"
+                type={isPrestataire ? "email" : "text"}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={styles.input}
+                placeholder={isPrestataire ? "Email" : "Email ou admin123"}
                 required
               />
             </div>
