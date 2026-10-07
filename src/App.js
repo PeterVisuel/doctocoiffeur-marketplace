@@ -25,6 +25,9 @@ const RendezVousV6 = () => {
   
   // Prestataire dashboard state
   const [dashboardTab, setDashboardTab] = useState('services');
+  const [serviceName, setServiceName] = useState('');
+  const [newServiceMinPrice, setNewServiceMinPrice] = useState('');
+  const [newServiceMaxPrice, setNewServiceMaxPrice] = useState('');
 
   // Search state
   const [searchType, setSearchType] = useState('ville'); // 'ville', 'nom', 'type'
@@ -213,6 +216,42 @@ const RendezVousV6 = () => {
 
   const handleRejectPrestataire = (id) => {
     setPrestataires(prestataires.filter(p => p.id !== id));
+  };
+
+  const handleAddService = () => {
+    if (!serviceName || !newServiceMinPrice || !newServiceMaxPrice) {
+      alert('Remplissez tous les champs');
+      return;
+    }
+
+    const updatedPrestataire = {
+      ...currentUser,
+      services: [
+        ...currentUser.services,
+        {
+          id: Math.max(...currentUser.services.map(s => s.id || 0), 0) + 1,
+          name: serviceName,
+          minPrice: parseFloat(newServiceMinPrice),
+          maxPrice: parseFloat(newServiceMaxPrice)
+        }
+      ]
+    };
+
+    setCurrentUser(updatedPrestataire);
+    setPrestataires(prestataires.map(p => p.id === currentUser.id ? updatedPrestataire : p));
+    setServiceName('');
+    setNewServiceMinPrice('');
+    setNewServiceMaxPrice('');
+  };
+
+  const handleDeleteService = (serviceId) => {
+    const updatedPrestataire = {
+      ...currentUser,
+      services: currentUser.services.filter(s => s.id !== serviceId)
+    };
+
+    setCurrentUser(updatedPrestataire);
+    setPrestataires(prestataires.map(p => p.id === currentUser.id ? updatedPrestataire : p));
   };
 
   // Pages
@@ -555,18 +594,76 @@ const RendezVousV6 = () => {
         {dashboardTab === 'services' && (
           <div>
             <h2>Grille tarifaire</h2>
-            {prestataire.services.map(service => (
-              <div key={service.id} style={{...styles.card, backgroundColor: '#f0f0f0', marginBottom: '20px'}}>
-                <div>
-                  <h3>{service.name}</h3>
-                  <p>
-                    {service.minPrice === service.maxPrice
-                      ? `${service.minPrice}€`
-                      : `${service.minPrice}€ - ${service.maxPrice}€`}
-                  </p>
+
+            {/* Ajouter une prestation */}
+            <div style={{...styles.card, marginBottom: '30px', backgroundColor: '#f9f9f9'}}>
+              <h3>Ajouter une prestation</h3>
+              <div style={{marginBottom: '10px'}}>
+                <label style={styles.label}>Nom du service</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Coupe cheveux"
+                  value={serviceName}
+                  onChange={(e) => setServiceName(e.target.value)}
+                  style={{...styles.input, marginBottom: '0'}}
+                />
+              </div>
+              <div style={{marginBottom: '10px', display: 'flex', gap: '10px'}}>
+                <div style={{flex: 1}}>
+                  <label style={styles.label}>Prix min (€)</label>
+                  <input
+                    type="number"
+                    placeholder="30"
+                    value={newServiceMinPrice}
+                    onChange={(e) => setNewServiceMinPrice(e.target.value)}
+                    style={{...styles.input, marginBottom: '0'}}
+                  />
+                </div>
+                <div style={{flex: 1}}>
+                  <label style={styles.label}>Prix max (€)</label>
+                  <input
+                    type="number"
+                    placeholder="50"
+                    value={newServiceMaxPrice}
+                    onChange={(e) => setNewServiceMaxPrice(e.target.value)}
+                    style={{...styles.input, marginBottom: '0'}}
+                  />
                 </div>
               </div>
-            ))}
+              <button
+                style={{...styles.btn, ...styles.btnPrimary}}
+                onClick={handleAddService}
+              >
+                Ajouter
+              </button>
+            </div>
+
+            {/* Liste des prestations */}
+            {prestataire.services && prestataire.services.length > 0 ? (
+              <div>
+                <h3>Vos prestations ({prestataire.services.length})</h3>
+                {prestataire.services.map(service => (
+                  <div key={service.id} style={{...styles.card, backgroundColor: '#f0f0f0', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <div>
+                      <h3>{service.name}</h3>
+                      <p style={{margin: '5px 0'}}>
+                        {service.minPrice === service.maxPrice
+                          ? `${service.minPrice}€`
+                          : `${service.minPrice}€ - ${service.maxPrice}€`}
+                      </p>
+                    </div>
+                    <button
+                      style={{...styles.btn, ...styles.btnDanger, marginLeft: '10px'}}
+                      onClick={() => handleDeleteService(service.id)}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{fontStyle: 'italic', color: '#666'}}>Aucune prestation ajoutée</p>
+            )}
           </div>
         )}
 
