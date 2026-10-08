@@ -28,30 +28,121 @@ const RendezVousV6 = () => {
   const [serviceName, setServiceName] = useState('');
   const [newServiceMinPrice, setNewServiceMinPrice] = useState('');
   const [newServiceMaxPrice, setNewServiceMaxPrice] = useState('');
+  const [newPhotosForService, setNewPhotosForService] = useState([]);
+  const [selectedServiceForPhotos, setSelectedServiceForPhotos] = useState(null);
 
   // Search state
   const [searchType, setSearchType] = useState('ville'); // 'ville', 'nom', 'type'
   const [searchValue, setSearchValue] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Beauté');
 
+  // Responsive design state
+  const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const isMobile = screenWidth < 768;
+  const isTablet = screenWidth < 1024;
+
+  useEffect(() => {
+    const handleResize = () => {
+      setScreenWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const styles = {
-    container: { padding: '20px', maxWidth: '1400px', margin: '0 auto', fontFamily: 'Arial, sans-serif', backgroundColor: '#fff', color: '#000', minHeight: '100vh' },
-    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', borderBottom: '2px solid #000', paddingBottom: '15px' },
-    logo: { height: '80px', objectFit: 'contain' },
-    nav: { display: 'flex', gap: '15px', alignItems: 'center' },
-    btn: { padding: '10px 20px', borderRadius: '5px', border: '1px solid #000', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', transition: 'all 0.3s' },
+    container: {
+      padding: isMobile ? '10px' : '20px',
+      maxWidth: '1400px',
+      margin: '0 auto',
+      fontFamily: 'Arial, sans-serif',
+      backgroundColor: '#fff',
+      color: '#000',
+      minHeight: '100vh'
+    },
+    header: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: isMobile ? '15px' : '30px',
+      borderBottom: '2px solid #000',
+      paddingBottom: isMobile ? '10px' : '15px',
+      flexWrap: 'wrap',
+      gap: isMobile ? '10px' : '0'
+    },
+    logo: {
+      height: isMobile ? '50px' : '80px',
+      objectFit: 'contain'
+    },
+    nav: {
+      display: 'flex',
+      gap: isMobile ? '8px' : '15px',
+      alignItems: 'center',
+      flexWrap: 'wrap'
+    },
+    btn: {
+      padding: isMobile ? '8px 12px' : '10px 20px',
+      borderRadius: '5px',
+      border: '1px solid #000',
+      cursor: 'pointer',
+      fontSize: isMobile ? '12px' : '14px',
+      fontWeight: 'bold',
+      transition: 'all 0.3s'
+    },
     btnPrimary: { backgroundColor: '#000', color: '#fff' },
     btnSecondary: { backgroundColor: '#fff', color: '#000' },
     btnDanger: { backgroundColor: '#ff6b6b', color: '#fff' },
     btnWarning: { backgroundColor: '#ffa500', color: '#fff' },
-    input: { padding: '10px', border: '1px solid #000', borderRadius: '5px', marginBottom: '10px', width: '100%', boxSizing: 'border-box', fontSize: '14px' },
-    card: { border: '1px solid #ddd', borderRadius: '5px', padding: '15px', marginBottom: '15px', backgroundColor: '#f9f9f9' },
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px', marginBottom: '20px' },
-    tab: { padding: '10px 15px', border: '1px solid #000', cursor: 'pointer', backgroundColor: '#f0f0f0', marginRight: '5px' },
+    input: {
+      padding: isMobile ? '10px' : '10px',
+      border: '1px solid #000',
+      borderRadius: '5px',
+      marginBottom: '10px',
+      width: '100%',
+      boxSizing: 'border-box',
+      fontSize: isMobile ? '16px' : '14px'
+    },
+    card: {
+      border: '1px solid #ddd',
+      borderRadius: '5px',
+      padding: isMobile ? '10px' : '15px',
+      marginBottom: '15px',
+      backgroundColor: '#f9f9f9'
+    },
+    grid: {
+      display: 'grid',
+      gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(280px, 1fr))',
+      gap: isMobile ? '10px' : '20px',
+      marginBottom: '20px'
+    },
+    tab: {
+      padding: isMobile ? '8px 10px' : '10px 15px',
+      border: '1px solid #000',
+      cursor: 'pointer',
+      backgroundColor: '#f0f0f0',
+      marginRight: '5px',
+      fontSize: isMobile ? '12px' : '14px'
+    },
     tabActive: { backgroundColor: '#000', color: '#fff' },
-    searchContainer: { display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' },
-    categoryTabs: { display: 'flex', gap: '10px', marginBottom: '20px' },
-    footer: { marginTop: '40px', borderTop: '2px solid #000', paddingTop: '20px', textAlign: 'center' },
+    searchContainer: {
+      display: 'flex',
+      gap: isMobile ? '5px' : '10px',
+      marginBottom: '20px',
+      flexWrap: 'wrap',
+      flexDirection: isMobile ? 'column' : 'row'
+    },
+    categoryTabs: {
+      display: 'flex',
+      gap: isMobile ? '5px' : '10px',
+      marginBottom: '20px',
+      flexWrap: 'wrap'
+    },
+    footer: {
+      marginTop: isMobile ? '20px' : '40px',
+      borderTop: '2px solid #000',
+      paddingTop: isMobile ? '10px' : '20px',
+      textAlign: 'center',
+      fontSize: isMobile ? '12px' : '14px'
+    },
   };
 
   // Initialize data
@@ -232,7 +323,8 @@ const RendezVousV6 = () => {
           id: Math.max(...currentUser.services.map(s => s.id || 0), 0) + 1,
           name: serviceName,
           minPrice: parseFloat(newServiceMinPrice),
-          maxPrice: parseFloat(newServiceMaxPrice)
+          maxPrice: parseFloat(newServiceMaxPrice),
+          photos: []
         }
       ]
     };
@@ -254,8 +346,100 @@ const RendezVousV6 = () => {
     setPrestataires(prestataires.map(p => p.id === currentUser.id ? updatedPrestataire : p));
   };
 
+  const handlePhotoUploadForService = (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setNewPhotosForService(prev => [...prev, ev.target.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAddPhotosToService = () => {
+    if (!selectedServiceForPhotos || newPhotosForService.length === 0) return;
+
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        services: prev.services.map(s =>
+          s.id === selectedServiceForPhotos
+            ? { ...s, photos: [...(s.photos || []), ...newPhotosForService] }
+            : s
+        )
+      };
+    });
+
+    setPrestataires(prestataires.map(p => {
+      if (p.id === currentUser.id) {
+        return {
+          ...p,
+          services: p.services.map(s =>
+            s.id === selectedServiceForPhotos
+              ? { ...s, photos: [...(s.photos || []), ...newPhotosForService] }
+              : s
+          )
+        };
+      }
+      return p;
+    }));
+
+    setNewPhotosForService([]);
+    setSelectedServiceForPhotos(null);
+  };
+
+  const handleDeleteServicePhoto = (serviceId, photoIndex) => {
+    if (!currentUser) return;
+
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        services: prev.services.map(s =>
+          s.id === serviceId
+            ? { ...s, photos: s.photos.filter((_, i) => i !== photoIndex) }
+            : s
+        )
+      };
+    });
+
+    setPrestataires(prestataires.map(p => {
+      if (p.id === currentUser.id) {
+        return {
+          ...p,
+          services: p.services.map(s =>
+            s.id === serviceId
+              ? { ...s, photos: s.photos.filter((_, i) => i !== photoIndex) }
+              : s
+          )
+        };
+      }
+      return p;
+    }));
+  };
+
   // Pages
   const HomePage = () => (
+    <>
+      <style>{`
+        @media (max-width: 768px) {
+          h1 { font-size: 24px !important; }
+          h2 { font-size: 20px !important; }
+          h3 { font-size: 16px !important; }
+          h4 { font-size: 14px !important; }
+          p { font-size: 14px !important; }
+          label { font-size: 13px !important; }
+        }
+        @media (max-width: 480px) {
+          h1 { font-size: 20px !important; }
+          h2 { font-size: 18px !important; }
+          h3 { font-size: 14px !important; }
+          h4 { font-size: 12px !important; }
+          p, button { font-size: 12px !important; }
+        }
+      `}</style>
     <div style={styles.container}>
       <div style={styles.header}>
         <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
@@ -357,6 +541,7 @@ const RendezVousV6 = () => {
         </div>
       </div>
     </div>
+    </>
   );
 
   const LoginPage = ({ role }) => {
@@ -643,21 +828,97 @@ const RendezVousV6 = () => {
               <div>
                 <h3>Vos prestations ({prestataire.services.length})</h3>
                 {prestataire.services.map(service => (
-                  <div key={service.id} style={{...styles.card, backgroundColor: '#f0f0f0', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div>
-                      <h3>{service.name}</h3>
-                      <p style={{margin: '5px 0'}}>
-                        {service.minPrice === service.maxPrice
-                          ? `${service.minPrice}€`
-                          : `${service.minPrice}€ - ${service.maxPrice}€`}
-                      </p>
+                  <div key={service.id} style={{...styles.card, backgroundColor: '#f0f0f0', marginBottom: '20px'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'start'}}>
+                      <div>
+                        <h3>{service.name}</h3>
+                        <p style={{margin: '5px 0'}}>
+                          {service.minPrice === service.maxPrice
+                            ? `${service.minPrice}€`
+                            : `${service.minPrice}€ - ${service.maxPrice}€`}
+                        </p>
+                      </div>
+                      <button
+                        style={{...styles.btn, ...styles.btnDanger}}
+                        onClick={() => handleDeleteService(service.id)}
+                      >
+                        Supprimer
+                      </button>
                     </div>
-                    <button
-                      style={{...styles.btn, ...styles.btnDanger, marginLeft: '10px'}}
-                      onClick={() => handleDeleteService(service.id)}
-                    >
-                      Supprimer
-                    </button>
+
+                    {/* Photos du service */}
+                    {service.photos && service.photos.length > 0 && (
+                      <div style={{marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
+                        <h4>Photos</h4>
+                        <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
+                          {service.photos.map((photo, i) => (
+                            <div key={i} style={{position: 'relative'}}>
+                              <img src={photo} alt={`${service.name} ${i}`} style={{width: '100px', height: '100px', objectFit: 'cover', border: '1px solid #ddd', borderRadius: '3px'}} />
+                              <button
+                                style={{
+                                  position: 'absolute',
+                                  top: '2px',
+                                  right: '2px',
+                                  padding: '2px 5px',
+                                  backgroundColor: '#ff6b6b',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '10px'
+                                }}
+                                onClick={() => handleDeleteServicePhoto(service.id, i)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Ajouter des photos */}
+                    <div style={{marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
+                      {selectedServiceForPhotos === service.id ? (
+                        <div>
+                          <label style={styles.label}>Charger des photos</label>
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            onChange={handlePhotoUploadForService}
+                            style={{marginBottom: '10px', display: 'block'}}
+                          />
+                          {newPhotosForService.length > 0 && (
+                            <div>
+                              <p style={{fontSize: '14px', marginBottom: '10px'}}>📸 {newPhotosForService.length} photo(s) sélectionnée(s)</p>
+                              <button
+                                style={{...styles.btn, ...styles.btnPrimary, marginRight: '10px'}}
+                                onClick={handleAddPhotosToService}
+                              >
+                                Ajouter les photos
+                              </button>
+                              <button
+                                style={{...styles.btn, ...styles.btnSecondary}}
+                                onClick={() => {
+                                  setSelectedServiceForPhotos(null);
+                                  setNewPhotosForService([]);
+                                }}
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          style={{...styles.btn, ...styles.btnWarning}}
+                          onClick={() => setSelectedServiceForPhotos(service.id)}
+                        >
+                          Ajouter des photos
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
