@@ -36,6 +36,31 @@ const RendezVousV6 = () => {
   const [searchValue, setSearchValue] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Beauté');
 
+  // Registration state
+  const [registrationData, setRegistrationData] = useState({
+    name: '',
+    city: '',
+    email: '',
+    password: '',
+    category: 'Beauté'
+  });
+
+  // Edit service state
+  const [editingServiceId, setEditingServiceId] = useState(null);
+  const [editingService, setEditingService] = useState({ name: '', minPrice: '', maxPrice: '' });
+
+  // Schedule state
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [scheduleData, setScheduleData] = useState({
+    monday: { start: '09:00', end: '18:00' },
+    tuesday: { start: '09:00', end: '18:00' },
+    wednesday: { start: '09:00', end: '18:00' },
+    thursday: { start: '09:00', end: '18:00' },
+    friday: { start: '09:00', end: '18:00' },
+    saturday: { start: '10:00', end: '17:00' },
+    sunday: { start: '', end: '' }
+  });
+
   // Responsive design state
   const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
   const isMobile = screenWidth < 768;
@@ -209,6 +234,71 @@ const RendezVousV6 = () => {
   }, [prestataires]);
 
   // Functions
+  const handleRegisterPrestataire = (formData) => {
+    const newPrestataire = {
+      ...formData,
+      id: Math.max(...prestataires.map(p => p.id || 0), 0) + 1,
+      approved: false,
+      emailVerified: false,
+      services: [],
+      photos: [],
+      reservations: [],
+      team: [],
+      schedule: scheduleData,
+      blockedHours: []
+    };
+    setPrestataires([...prestataires, newPrestataire]);
+    localStorage.setItem('rendez_v6_prestataires', JSON.stringify([...prestataires, newPrestataire]));
+    setPage('home');
+  };
+
+  const handleEditService = (serviceId, service) => {
+    setEditingServiceId(serviceId);
+    setEditingService({
+      name: service.name,
+      minPrice: service.minPrice.toString(),
+      maxPrice: service.maxPrice.toString()
+    });
+  };
+
+  const handleUpdateService = () => {
+    if (!editingService.name || !editingService.minPrice || !editingService.maxPrice) {
+      alert('Remplissez tous les champs');
+      return;
+    }
+
+    const updatedPrestataire = {
+      ...currentUser,
+      services: currentUser.services.map(s =>
+        s.id === editingServiceId
+          ? {
+              ...s,
+              name: editingService.name,
+              minPrice: parseFloat(editingService.minPrice),
+              maxPrice: parseFloat(editingService.maxPrice)
+            }
+          : s
+      )
+    };
+
+    setCurrentUser(updatedPrestataire);
+    setPrestataires(prestataires.map(p => p.id === currentUser.id ? updatedPrestataire : p));
+    setEditingServiceId(null);
+    setEditingService({ name: '', minPrice: '', maxPrice: '' });
+  };
+
+  const handleSaveSchedule = () => {
+    const updatedPrestataire = {
+      ...currentUser,
+      schedule: scheduleData
+    };
+
+    setCurrentUser(updatedPrestataire);
+    setPrestataires(prestataires.map(p => p.id === currentUser.id ? updatedPrestataire : p));
+    setEditingSchedule(false);
+    alert('Créneaux sauvegardés');
+  };
+
   const handleLogin = (email, password, role) => {
     if (role === 'admin') {
       if (email === 'admin123' && password === 'admin123') {
@@ -589,6 +679,113 @@ const RendezVousV6 = () => {
               Se connecter
             </button>
           </form>
+          {role === 'prestataire' && (
+            <div style={{marginTop: '20px', textAlign: 'center', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
+              <p style={{marginBottom: '10px', fontSize: '14px'}}>Pas encore inscrit?</p>
+              <button
+                style={{...styles.btn, ...styles.btnSecondary, width: '100%'}}
+                onClick={() => setPage('register-prestataire')}
+              >
+                S'inscrire comme Prestataire
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const RegisterPage = () => {
+    const handleChange = (e) => {
+      setRegistrationData({...registrationData, [e.target.name]: e.target.value});
+    };
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      if (!registrationData.name || !registrationData.email || !registrationData.password || !registrationData.city) {
+        alert('Remplissez tous les champs');
+        return;
+      }
+      handleRegisterPrestataire(registrationData);
+      setRegistrationData({ name: '', city: '', email: '', password: '', category: 'Beauté' });
+    };
+
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
+          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('home')}>
+            Retour
+          </button>
+        </div>
+        <div style={{maxWidth: '400px', margin: isMobile ? '20px auto' : '40px auto'}}>
+          <h2>Inscription Prestataire</h2>
+          <form onSubmit={handleSubmit}>
+            <div style={{marginBottom: '10px'}}>
+              <label style={{...styles.label, display: 'block'}}>Nom du salon</label>
+              <input
+                name="name"
+                placeholder="Ex: Salon Élégance"
+                value={registrationData.name}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            </div>
+            <div style={{marginBottom: '10px'}}>
+              <label style={{...styles.label, display: 'block'}}>Catégorie</label>
+              <select
+                name="category"
+                value={registrationData.category}
+                onChange={handleChange}
+                style={styles.input}
+              >
+                <option>Beauté</option>
+                <option>Artisans</option>
+              </select>
+            </div>
+            <div style={{marginBottom: '10px'}}>
+              <label style={{...styles.label, display: 'block'}}>Ville</label>
+              <input
+                name="city"
+                placeholder="Ex: Paris"
+                value={registrationData.city}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            </div>
+            <div style={{marginBottom: '10px'}}>
+              <label style={{...styles.label, display: 'block'}}>Email</label>
+              <input
+                type="email"
+                name="email"
+                placeholder="Ex: salon@email.fr"
+                value={registrationData.email}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            </div>
+            <div style={{marginBottom: '10px'}}>
+              <label style={{...styles.label, display: 'block'}}>Mot de passe</label>
+              <input
+                type="password"
+                name="password"
+                placeholder="Minimum 6 caractères"
+                value={registrationData.password}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            </div>
+            <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+              S'inscrire
+            </button>
+          </form>
+          <p style={{textAlign: 'center', marginTop: '15px', fontSize: '12px', color: '#666'}}>
+            Déjà inscrit? <button style={{background: 'none', border: 'none', color: '#000', textDecoration: 'underline', cursor: 'pointer'}} onClick={() => setPage('login-prestataire')}>Connexion</button>
+          </p>
         </div>
       </div>
     );
@@ -829,23 +1026,83 @@ const RendezVousV6 = () => {
                 <h3>Vos prestations ({prestataire.services.length})</h3>
                 {prestataire.services.map(service => (
                   <div key={service.id} style={{...styles.card, backgroundColor: '#f0f0f0', marginBottom: '20px'}}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'start'}}>
-                      <div>
-                        <h3>{service.name}</h3>
-                        <p style={{margin: '5px 0'}}>
-                          {service.minPrice === service.maxPrice
-                            ? `${service.minPrice}€`
-                            : `${service.minPrice}€ - ${service.maxPrice}€`}
-                        </p>
+                    {editingServiceId === service.id ? (
+                      <div style={{backgroundColor: '#fff8e1', padding: '15px', borderRadius: '3px', marginBottom: '15px'}}>
+                        <h3>Modifier la prestation</h3>
+                        <div style={{marginBottom: '10px'}}>
+                          <label style={styles.label}>Nom du service</label>
+                          <input
+                            type="text"
+                            value={editingService.name}
+                            onChange={(e) => setEditingService({...editingService, name: e.target.value})}
+                            style={{...styles.input, marginBottom: '0'}}
+                          />
+                        </div>
+                        <div style={{marginBottom: '10px', display: 'flex', gap: '10px'}}>
+                          <div style={{flex: 1}}>
+                            <label style={styles.label}>Prix min (€)</label>
+                            <input
+                              type="number"
+                              value={editingService.minPrice}
+                              onChange={(e) => setEditingService({...editingService, minPrice: e.target.value})}
+                              style={{...styles.input, marginBottom: '0'}}
+                            />
+                          </div>
+                          <div style={{flex: 1}}>
+                            <label style={styles.label}>Prix max (€)</label>
+                            <input
+                              type="number"
+                              value={editingService.maxPrice}
+                              onChange={(e) => setEditingService({...editingService, maxPrice: e.target.value})}
+                              style={{...styles.input, marginBottom: '0'}}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          style={{...styles.btn, ...styles.btnPrimary, marginRight: '10px'}}
+                          onClick={handleUpdateService}
+                        >
+                          Enregistrer
+                        </button>
+                        <button
+                          style={{...styles.btn, ...styles.btnSecondary}}
+                          onClick={() => {
+                            setEditingServiceId(null);
+                            setEditingService({ name: '', minPrice: '', maxPrice: '' });
+                          }}
+                        >
+                          Annuler
+                        </button>
                       </div>
-                      <button
-                        style={{...styles.btn, ...styles.btnDanger}}
-                        onClick={() => handleDeleteService(service.id)}
-                      >
-                        Supprimer
-                      </button>
-                    </div>
+                    ) : (
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'start'}}>
+                        <div>
+                          <h3>{service.name}</h3>
+                          <p style={{margin: '5px 0'}}>
+                            {service.minPrice === service.maxPrice
+                              ? `${service.minPrice}€`
+                              : `${service.minPrice}€ - ${service.maxPrice}€`}
+                          </p>
+                        </div>
+                        <div style={{display: 'flex', gap: '10px'}}>
+                          <button
+                            style={{...styles.btn, ...styles.btnWarning}}
+                            onClick={() => handleEditService(service.id, service)}
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            style={{...styles.btn, ...styles.btnDanger}}
+                            onClick={() => handleDeleteService(service.id)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
+                    {editingServiceId !== service.id && (
+                      <>
                     {/* Photos du service */}
                     {service.photos && service.photos.length > 0 && (
                       <div style={{marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
@@ -919,6 +1176,8 @@ const RendezVousV6 = () => {
                         </button>
                       )}
                     </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -931,12 +1190,93 @@ const RendezVousV6 = () => {
         {dashboardTab === 'schedule' && (
           <div>
             <h2>Gestion des créneaux</h2>
-            <div style={styles.card}>
-              <p>Horaires: Lundi - Vendredi: 09:00 - 18:00</p>
-              <p style={{marginTop: '20px', fontSize: '14px', color: '#666'}}>
-                (À développer: configuration personnalisée des horaires et blocage des heures)
-              </p>
-            </div>
+
+            {!editingSchedule ? (
+              <div>
+                <div style={{...styles.card, marginBottom: '20px'}}>
+                  <h3>Horaires actuels</h3>
+                  {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
+                    const dayName = { monday: 'Lundi', tuesday: 'Mardi', wednesday: 'Mercredi', thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi', sunday: 'Dimanche' }[day];
+                    const hours = currentUser?.schedule?.[day] || { start: '', end: '' };
+                    return (
+                      <p key={day} style={{marginBottom: '10px'}}>
+                        <strong>{dayName}:</strong> {hours.start && hours.end ? `${hours.start} - ${hours.end}` : 'Fermé'}
+                      </p>
+                    );
+                  })}
+                </div>
+                <button
+                  style={{...styles.btn, ...styles.btnPrimary}}
+                  onClick={() => {
+                    setEditingSchedule(true);
+                    setScheduleData(currentUser?.schedule || {
+                      monday: { start: '09:00', end: '18:00' },
+                      tuesday: { start: '09:00', end: '18:00' },
+                      wednesday: { start: '09:00', end: '18:00' },
+                      thursday: { start: '09:00', end: '18:00' },
+                      friday: { start: '09:00', end: '18:00' },
+                      saturday: { start: '10:00', end: '17:00' },
+                      sunday: { start: '', end: '' }
+                    });
+                  }}
+                >
+                  Modifier les horaires
+                </button>
+              </div>
+            ) : (
+              <div style={styles.card}>
+                <h3>Modifier les horaires</h3>
+                {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
+                  const dayName = { monday: 'Lundi', tuesday: 'Mardi', wednesday: 'Mercredi', thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi', sunday: 'Dimanche' }[day];
+                  return (
+                    <div key={day} style={{marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #ddd'}}>
+                      <label style={{...styles.label, display: 'block', fontWeight: 'bold'}}>{dayName}</label>
+                      <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+                        <div style={{flex: 1}}>
+                          <label style={styles.label}>Début</label>
+                          <input
+                            type="time"
+                            value={scheduleData[day]?.start || ''}
+                            onChange={(e) => setScheduleData({
+                              ...scheduleData,
+                              [day]: { ...scheduleData[day], start: e.target.value }
+                            })}
+                            style={styles.input}
+                          />
+                        </div>
+                        <div style={{flex: 1}}>
+                          <label style={styles.label}>Fin</label>
+                          <input
+                            type="time"
+                            value={scheduleData[day]?.end || ''}
+                            onChange={(e) => setScheduleData({
+                              ...scheduleData,
+                              [day]: { ...scheduleData[day], end: e.target.value }
+                            })}
+                            style={styles.input}
+                          />
+                        </div>
+                      </div>
+                      <p style={{fontSize: '12px', color: '#666', marginTop: '5px'}}>Laissez vides pour fermeture</p>
+                    </div>
+                  );
+                })}
+                <div style={{marginTop: '20px', display: 'flex', gap: '10px'}}>
+                  <button
+                    style={{...styles.btn, ...styles.btnPrimary, flex: 1}}
+                    onClick={handleSaveSchedule}
+                  >
+                    Enregistrer
+                  </button>
+                  <button
+                    style={{...styles.btn, ...styles.btnSecondary, flex: 1}}
+                    onClick={() => setEditingSchedule(false)}
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1037,6 +1377,7 @@ const RendezVousV6 = () => {
   if (page === 'login-client') return <LoginPage role="client" />;
   if (page === 'login-prestataire') return <LoginPage role="prestataire" />;
   if (page === 'login-admin') return <LoginPage role="admin" />;
+  if (page === 'register-prestataire') return <RegisterPage />;
   if (page === 'prestataire-detail') return <PrestaireDetailPage />;
   if (page === 'reservation') return <ReservationPage />;
   if (page === 'dashboard') return <DashboardPage />;
