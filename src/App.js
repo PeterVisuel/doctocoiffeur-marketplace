@@ -19,8 +19,8 @@ const SAMPLE_DATA = [
       { id: 102, name: 'Coloration', minPrice: 70, maxPrice: 90, photos: [] },
     ],
     schedule: {
-      monday: { start: '09:00', end: '18:00' },
-      tuesday: { start: '09:00', end: '18:00' }
+      monday: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }],
+      tuesday: [{ start: '09:00', end: '18:00' }]
     },
     blockedHours: [],
     reservations: [],
@@ -45,6 +45,115 @@ const SAMPLE_DATA = [
   }
 ];
 
+const CLIENTS_STORAGE_KEY = 'rendez_v6_clients';
+
+// Comptes administrateurs : ils se connectent via « Connexion Prestataire ».
+// Ajoutez une ligne par administrateur.
+const ADMIN_ACCOUNTS = [
+  { email: 'admin123', password: 'admin123' }
+];
+
+const DAYS = [
+  { key: 'monday', label: 'Lundi' },
+  { key: 'tuesday', label: 'Mardi' },
+  { key: 'wednesday', label: 'Mercredi' },
+  { key: 'thursday', label: 'Jeudi' },
+  { key: 'friday', label: 'Vendredi' },
+  { key: 'saturday', label: 'Samedi' },
+  { key: 'sunday', label: 'Dimanche' }
+];
+
+// Horaires par défaut : chaque jour contient une liste de plages { start, end }
+const DEFAULT_SCHEDULE = {
+  monday: [{ start: '09:00', end: '18:00' }],
+  tuesday: [{ start: '09:00', end: '18:00' }],
+  wednesday: [{ start: '09:00', end: '18:00' }],
+  thursday: [{ start: '09:00', end: '18:00' }],
+  friday: [{ start: '09:00', end: '18:00' }],
+  saturday: [{ start: '10:00', end: '17:00' }],
+  sunday: []
+};
+
+const toMinutes = (time) => {
+  const [h, m] = String(time).split(':').map(Number);
+  return h * 60 + (m || 0);
+};
+
+const fromMinutes = (minutes) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+// "9:00" et "09:00" désignent la même heure
+const normalizeTime = (time) => (time ? fromMinutes(toMinutes(time)) : '');
+
+// Convertit les anciens formats ({ start, end } par jour) en listes de plages
+const normalizeSchedule = (schedule) => {
+  const result = {};
+  DAYS.forEach(({ key }) => {
+    const value = schedule?.[key];
+    const slots = Array.isArray(value) ? value : value ? [value] : [];
+    result[key] = slots
+      .filter(slot => slot && slot.start && slot.end)
+      .map(slot => ({ start: slot.start, end: slot.end }));
+  });
+  return result;
+};
+
+const hasAnySlot = (schedule) => DAYS.some(({ key }) => (schedule?.[key] || []).length > 0);
+
+const formatDaySlots = (slots) =>
+  slots && slots.length > 0 ? slots.map(slot => `${slot.start} - ${slot.end}`).join(', ') : 'Fermé';
+
+// Vérifie les plages saisies ; renvoie un message d'erreur ou null
+const validateSchedule = (schedule) => {
+  for (const { key, label } of DAYS) {
+    const slots = schedule[key] || [];
+    if (slots.some(slot => !slot.start || !slot.end)) {
+      return `${label} : renseignez le début et la fin de chaque plage (ou supprimez-la)`;
+    }
+    if (slots.some(slot => toMinutes(slot.start) >= toMinutes(slot.end))) {
+      return `${label} : l'heure de fin doit être après l'heure de début`;
+    }
+    const sorted = [...slots].sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    for (let i = 1; i < sorted.length; i++) {
+      if (toMinutes(sorted[i].start) < toMinutes(sorted[i - 1].end)) {
+        return `${label} : les plages ${formatDaySlots([sorted[i - 1]])} et ${formatDaySlots([sorted[i]])} se chevauchent`;
+      }
+    }
+  }
+  return null;
+};
+
+// Jour de la semaine d'une date "AAAA-MM-JJ" (calculé en heure locale)
+const dayKeyFromDate = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const index = new Date(y, m - 1, d).getDay(); // 0 = dimanche
+  return DAYS[(index + 6) % 7].key;
+};
+
+const todayString = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+// Heures de rendez-vous proposées (toutes les heures) pour une date donnée
+const getTimeOptions = (schedule, dateStr) => {
+  if (!dateStr) return [];
+  // Prestataire sans horaires renseignés : créneaux par défaut de 8h à 19h
+  if (!hasAnySlot(schedule)) {
+    return Array.from({ length: 12 }, (_, i) => fromMinutes((8 + i) * 60));
+  }
+  const options = [];
+  (schedule[dayKeyFromDate(dateStr)] || [])
+    .slice()
+    .sort((a, b) => toMinutes(a.start) - toMinutes(b.start))
+    .forEach(slot => {
+      for (let t = toMinutes(slot.start); t + 60 <= toMinutes(slot.end); t += 60) {
+        options.push(fromMinutes(t));
+      }
+    });
+  return options;
+};
+
 // Complète les champs manquants pour éviter les plantages sur d'anciennes données
 const normalizePrestataire = (p) => ({
   ...p,
@@ -52,8 +161,23 @@ const normalizePrestataire = (p) => ({
   reservations: p.reservations || [],
   blockedHours: p.blockedHours || [],
   photos: p.photos || [],
-  schedule: p.schedule || {}
+  schedule: normalizeSchedule(p.schedule)
 });
+
+const loadClients = () => {
+  try {
+    const saved = localStorage.getItem(CLIENTS_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Comptes clients illisibles, réinitialisation', e);
+  }
+  return [];
+};
+
+const EMPTY_CLIENT_REGISTRATION = { lastName: '', firstName: '', email: '', phone: '', password: '' };
 
 const loadPrestataires = () => {
   try {
@@ -65,7 +189,7 @@ const loadPrestataires = () => {
   } catch (e) {
     console.error('Données locales illisibles, réinitialisation', e);
   }
-  return SAMPLE_DATA;
+  return SAMPLE_DATA.map(normalizePrestataire);
 };
 
 // Valide les prix saisis ; renvoie un message d'erreur ou null
@@ -83,10 +207,14 @@ const RendezVousV6 = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState('home');
   const [prestataires, setPrestataires] = useState(loadPrestataires);
+  const [clients, setClients] = useState(loadClients);
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPrestataire, setSelectedPrestataire] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [adminFilter, setAdminFilter] = useState('Tous');
+  const [adminTab, setAdminTab] = useState('prestataires');
+  // Prestataire dont l'admin a ouvert le tableau de bord
+  const [managedPrestataireId, setManagedPrestataireId] = useState(null);
   
   // Reservation form state
   const [reservationData, setReservationData] = useState({
@@ -124,21 +252,16 @@ const RendezVousV6 = () => {
   // Login form state
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
 
+  // Client registration state
+  const [clientRegistration, setClientRegistration] = useState(EMPTY_CLIENT_REGISTRATION);
+
   // Edit service state
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [editingService, setEditingService] = useState({ name: '', minPrice: '', maxPrice: '' });
 
   // Schedule state
   const [editingSchedule, setEditingSchedule] = useState(false);
-  const [scheduleData, setScheduleData] = useState({
-    monday: { start: '09:00', end: '18:00' },
-    tuesday: { start: '09:00', end: '18:00' },
-    wednesday: { start: '09:00', end: '18:00' },
-    thursday: { start: '09:00', end: '18:00' },
-    friday: { start: '09:00', end: '18:00' },
-    saturday: { start: '10:00', end: '17:00' },
-    sunday: { start: '', end: '' }
-  });
+  const [scheduleData, setScheduleData] = useState(DEFAULT_SCHEDULE);
 
   // Responsive design state
   const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -174,7 +297,7 @@ const RendezVousV6 = () => {
       gap: isMobile ? '10px' : '0'
     },
     logo: {
-      height: isMobile ? '50px' : '80px',
+      height: isMobile ? '65px' : '105px',
       objectFit: 'contain'
     },
     nav: {
@@ -259,15 +382,32 @@ const RendezVousV6 = () => {
     }
   }, [prestataires]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+    } catch (e) {
+      console.error('Sauvegarde des comptes clients impossible', e);
+    }
+  }, [clients]);
+
   // Le prestataire connecté est toujours lu depuis la liste, pour rester synchronisé
   // (nouvelles réservations, approbation admin, etc.)
-  const currentPrestataire = currentUser && currentUser.role !== 'admin'
-    ? prestataires.find(p => p.id === currentUser.id) || null
+  // Un admin peut ouvrir le tableau de bord de n'importe quel prestataire
+  const isAdmin = Boolean(currentUser && currentUser.role === 'admin');
+  const currentPrestataireId = currentUser?.role === 'prestataire'
+    ? currentUser.id
+    : isAdmin ? managedPrestataireId : null;
+  const currentPrestataire = currentPrestataireId != null
+    ? prestataires.find(p => p.id === currentPrestataireId) || null
+    : null;
+
+  const currentClient = currentUser && currentUser.role === 'client'
+    ? clients.find(c => c.id === currentUser.id) || null
     : null;
 
   const updateCurrentPrestataire = (updater) => {
-    if (!currentUser) return;
-    setPrestataires(prev => prev.map(p => (p.id === currentUser.id ? updater(p) : p)));
+    if (currentPrestataireId == null) return;
+    setPrestataires(prev => prev.map(p => (p.id === currentPrestataireId ? updater(p) : p)));
   };
 
   // Functions
@@ -289,11 +429,33 @@ const RendezVousV6 = () => {
         photos: [],
         reservations: [],
         team: [],
-        schedule: scheduleData,
+        schedule: DEFAULT_SCHEDULE,
         blockedHours: []
       }
     ]);
     alert('Inscription envoyée. Votre compte sera actif après validation par un administrateur.');
+    setPage('home');
+    return true;
+  };
+
+  const handleRegisterClient = (formData) => {
+    const email = formData.email.trim().toLowerCase();
+    if (clients.some(c => c.email === email)) {
+      alert('Un compte client existe déjà avec cet email');
+      return false;
+    }
+    const newClient = {
+      id: Math.max(...clients.map(c => c.id || 0), 0) + 1,
+      lastName: formData.lastName.trim(),
+      firstName: formData.firstName.trim(),
+      email,
+      phone: formData.phone.trim(),
+      password: formData.password,
+      createdAt: new Date().toISOString()
+    };
+    setClients(prev => [...prev, newClient]);
+    setCurrentUser({ id: newClient.id, role: 'client' });
+    alert(`Bienvenue ${newClient.firstName} ! Votre compte est créé.`);
     setPage('home');
     return true;
   };
@@ -336,20 +498,35 @@ const RendezVousV6 = () => {
   };
 
   const handleSaveSchedule = () => {
-    updateCurrentPrestataire(p => ({ ...p, schedule: scheduleData }));
+    const scheduleError = validateSchedule(scheduleData);
+    if (scheduleError) {
+      alert(scheduleError);
+      return;
+    }
+    const sortedSchedule = {};
+    DAYS.forEach(({ key }) => {
+      sortedSchedule[key] = [...(scheduleData[key] || [])]
+        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    });
+    updateCurrentPrestataire(p => ({ ...p, schedule: sortedSchedule }));
     setEditingSchedule(false);
     alert('Créneaux sauvegardés');
   };
 
   const handleLogin = (email, password, role) => {
     const normalizedEmail = email.trim().toLowerCase();
-    if (role === 'admin') {
-      if (normalizedEmail === 'admin123' && password === 'admin123') {
-        setCurrentUser({ email: 'admin123', role: 'admin' });
+    if (role === 'prestataire') {
+      // Identifiants administrateur saisis dans la connexion prestataire => accès admin
+      const admin = ADMIN_ACCOUNTS.find(
+        a => a.email.toLowerCase() === normalizedEmail && a.password === password
+      );
+      if (admin) {
+        setCurrentUser({ email: admin.email, role: 'admin' });
+        setManagedPrestataireId(null);
+        setAdminTab('prestataires');
         setPage('admin');
         return true;
       }
-    } else if (role === 'prestataire') {
       const prestataire = prestataires.find(
         p => (p.email || '').toLowerCase() === normalizedEmail && p.password === password
       );
@@ -359,12 +536,20 @@ const RendezVousV6 = () => {
         setPage('dashboard');
         return true;
       }
+    } else if (role === 'client') {
+      const client = clients.find(c => c.email === normalizedEmail && c.password === password);
+      if (client) {
+        setCurrentUser({ id: client.id, role: 'client' });
+        setPage('home');
+        return true;
+      }
     }
     return false;
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setManagedPrestataireId(null);
     setPage('home');
     setLoginForm({ email: '', password: '' });
     setEditingServiceId(null);
@@ -396,8 +581,30 @@ const RendezVousV6 = () => {
 
     // Simple availability check - in real app would be more complex
     if ((prestataire.blockedHours || []).includes(`${date}-${time}`)) return false;
+    // Le créneau doit faire partie des horaires d'ouverture
+    if (!getTimeOptions(prestataire.schedule, date).includes(normalizeTime(time))) return false;
     // Empêche la double réservation d'un même créneau
-    return !(prestataire.reservations || []).some(r => r.date === date && r.time === time);
+    return !isSlotBooked(prestataire, date, time);
+  };
+
+  const isSlotBooked = (prestataire, date, time) =>
+    (prestataire.reservations || []).some(
+      r => r.date === date && normalizeTime(r.time) === normalizeTime(time)
+    );
+
+  // Pré-remplit le formulaire de réservation avec les infos du client connecté
+  const startReservation = (service) => {
+    setSelectedService(service);
+    if (currentClient) {
+      setReservationData(prev => ({
+        ...prev,
+        clientName: prev.clientName || currentClient.lastName,
+        clientFirstName: prev.clientFirstName || currentClient.firstName,
+        clientEmail: prev.clientEmail || currentClient.email,
+        clientPhone: prev.clientPhone || currentClient.phone
+      }));
+    }
+    setPage('reservation');
   };
 
   const processPayment = async (method) => {
@@ -418,6 +625,7 @@ const RendezVousV6 = () => {
 
     const reservation = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      clientId: currentClient ? currentClient.id : null,
       clientName: reservationData.clientName,
       clientFirstName: reservationData.clientFirstName,
       clientEmail: reservationData.clientEmail,
@@ -586,6 +794,20 @@ const RendezVousV6 = () => {
         </div>
       </div>
 
+      {currentClient && (
+        <div style={{...styles.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+          <span>Bonjour <strong>{currentClient.firstName}</strong></span>
+          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('client-reservations')}>
+              Mes réservations
+            </button>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={handleLogout}>
+              Déconnexion
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: '30px' }}>
         <p style={{ textAlign: 'center', fontSize: '16px', fontWeight: 'normal', color: '#666' }}>La plateforme qui simplifie les réservations des professionnels</p>
       </div>
@@ -650,14 +872,17 @@ const RendezVousV6 = () => {
       <div style={styles.footer}>
         <p style={{marginBottom: '20px', color: '#666'}}>Accès rapide</p>
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-client')}>
-            Connexion Client
-          </button>
+          {currentClient ? (
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('client-reservations')}>
+              Mes réservations
+            </button>
+          ) : (
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-client')}>
+              Connexion Client
+            </button>
+          )}
           <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-prestataire')}>
             Connexion Prestataire
-          </button>
-          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-admin')}>
-            Admin
           </button>
         </div>
       </div>
@@ -684,7 +909,7 @@ const RendezVousV6 = () => {
           </button>
         </div>
         <div style={{maxWidth: '400px', margin: '60px auto'}}>
-          <h2>Connexion {role === 'admin' ? 'Admin' : role === 'prestataire' ? 'Prestataire' : 'Client'}</h2>
+          <h2>Connexion {role === 'prestataire' ? 'Prestataire' : 'Client'}</h2>
           <form onSubmit={handleSubmit}>
             <input
               type="text"
@@ -723,7 +948,125 @@ const RendezVousV6 = () => {
               </button>
             </div>
           )}
+          {role === 'client' && (
+            <div style={{marginTop: '20px', textAlign: 'center', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
+              <p style={{marginBottom: '10px', fontSize: '14px'}}>Pas encore de compte ?</p>
+              <button
+                style={{...styles.btn, ...styles.btnSecondary, width: '100%'}}
+                onClick={() => setPage('register-client')}
+              >
+                Créer un compte client
+              </button>
+            </div>
+          )}
         </div>
+      </div>
+    );
+  };
+
+  const renderClientRegisterPage = () => {
+    const handleChange = (e) => {
+      const { name, value } = e.target;
+      setClientRegistration(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      const { lastName, firstName, email, phone, password } = clientRegistration;
+      if (!lastName.trim() || !firstName.trim() || !email.trim() || !phone.trim() || !password) {
+        alert('Remplissez tous les champs');
+        return;
+      }
+      if (password.length < 6) {
+        alert('Le mot de passe doit contenir au moins 6 caractères');
+        return;
+      }
+      if (handleRegisterClient(clientRegistration)) {
+        setClientRegistration(EMPTY_CLIENT_REGISTRATION);
+      }
+    };
+
+    const fields = [
+      { name: 'lastName', label: 'Nom', type: 'text', placeholder: 'Ex: Dupont', autoComplete: 'family-name' },
+      { name: 'firstName', label: 'Prénom', type: 'text', placeholder: 'Ex: Marie', autoComplete: 'given-name' },
+      { name: 'email', label: 'Email', type: 'email', placeholder: 'Ex: marie@email.fr', autoComplete: 'email' },
+      { name: 'phone', label: 'Téléphone', type: 'tel', placeholder: 'Ex: 06 12 34 56 78', autoComplete: 'tel' },
+      { name: 'password', label: 'Mot de passe', type: 'password', placeholder: 'Minimum 6 caractères', autoComplete: 'new-password' }
+    ];
+
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
+          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('home')}>
+            Retour
+          </button>
+        </div>
+        <div style={{maxWidth: '400px', margin: isMobile ? '20px auto' : '40px auto'}}>
+          <h2>Créer un compte client</h2>
+          <form onSubmit={handleSubmit}>
+            {fields.map(field => (
+              <div key={field.name} style={{marginBottom: '10px'}}>
+                <label style={{display: 'block'}}>{field.label}</label>
+                <input
+                  type={field.type}
+                  name={field.name}
+                  placeholder={field.placeholder}
+                  autoComplete={field.autoComplete}
+                  value={clientRegistration[field.name]}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+            ))}
+            <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+              Créer mon compte
+            </button>
+          </form>
+          <p style={{textAlign: 'center', marginTop: '15px', fontSize: '12px', color: '#666'}}>
+            Déjà un compte ? <button style={{background: 'none', border: 'none', color: '#000', textDecoration: 'underline', cursor: 'pointer'}} onClick={() => setPage('login-client')}>Connexion</button>
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  const renderClientReservationsPage = () => {
+    if (!currentClient) return null;
+
+    const myReservations = prestataires
+      .flatMap(p => (p.reservations || [])
+        .filter(r => r.clientId === currentClient.id)
+        .map(r => ({ ...r, prestataireName: p.name, prestataireCity: p.city })))
+      .sort((a, b) => `${a.date} ${normalizeTime(a.time)}`.localeCompare(`${b.date} ${normalizeTime(b.time)}`));
+
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
+          <div style={styles.nav}>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('home')}>
+              Retour
+            </button>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={handleLogout}>
+              Déconnexion
+            </button>
+          </div>
+        </div>
+        <h2>Mes réservations</h2>
+        {myReservations.length > 0 ? (
+          myReservations.map(res => (
+            <div key={res.id} style={styles.card}>
+              <h4>{res.serviceName}</h4>
+              <p><strong>{res.prestataireName}</strong> • {res.prestataireCity}</p>
+              <p>📅 {res.date} à {normalizeTime(res.time)}</p>
+              <p>Paiement : {res.paymentMethod === 'site' ? 'Sur le site (payé)' : 'Au prestataire (en attente)'}</p>
+            </div>
+          ))
+        ) : (
+          <p>Aucune réservation pour le moment</p>
+        )}
       </div>
     );
   };
@@ -856,10 +1199,7 @@ const RendezVousV6 = () => {
               </p>
               <button
                 style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}
-                onClick={() => {
-                  setSelectedService(service);
-                  setPage('reservation');
-                }}
+                onClick={() => startReservation(service)}
               >
                 Réserver
               </button>
@@ -875,8 +1215,16 @@ const RendezVousV6 = () => {
 
     const updateReservationField = (field) => (e) => {
       const { value } = e.target;
-      setReservationData(prev => ({ ...prev, [field]: value }));
+      setReservationData(prev => ({
+        ...prev,
+        [field]: value,
+        ...(field === 'selectedDate' ? { selectedTime: '' } : {})
+      }));
     };
+
+    const prestataireActuel = prestataires.find(p => p.id === selectedPrestataire.id) || selectedPrestataire;
+    const timeOptions = getTimeOptions(prestataireActuel.schedule, reservationData.selectedDate);
+    const isClosedThatDay = Boolean(reservationData.selectedDate) && timeOptions.length === 0;
 
     return (
       <div style={styles.container}>
@@ -936,6 +1284,7 @@ const RendezVousV6 = () => {
             <h3>Sélectionnez un créneau</h3>
             <input
               type="date"
+              min={todayString()}
               value={reservationData.selectedDate}
               onChange={updateReservationField('selectedDate')}
               style={styles.input}
@@ -947,11 +1296,23 @@ const RendezVousV6 = () => {
               style={styles.input}
               required
             >
-              <option value="">Choisir une heure</option>
-              {Array.from({length: 18}, (_, i) => 8 + i).map(h => (
-                <option key={h} value={`${h}:00`}>{h}:00</option>
-              ))}
+              <option value="">
+                {!reservationData.selectedDate ? "Choisissez d'abord une date" : isClosedThatDay ? 'Fermé ce jour-là' : 'Choisir une heure'}
+              </option>
+              {timeOptions.map(time => {
+                const booked = isSlotBooked(prestataireActuel, reservationData.selectedDate, time);
+                return (
+                  <option key={time} value={time} disabled={booked}>
+                    {time}{booked ? ' (déjà réservé)' : ''}
+                  </option>
+                );
+              })}
             </select>
+            {isClosedThatDay && (
+              <p style={{color: '#c0392b', fontSize: '13px', marginTop: '-5px'}}>
+                Le prestataire est fermé ce jour-là, choisissez une autre date.
+              </p>
+            )}
 
             <h3>Mode de paiement</h3>
             <label style={{display: 'block', marginBottom: '10px', cursor: 'pointer'}}>
@@ -994,7 +1355,22 @@ const RendezVousV6 = () => {
         <div style={styles.header}>
           <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
           <div style={styles.nav}>
-            <span><strong>{prestataire.name}</strong></span>
+            <span><strong>{prestataire.name}</strong>{isAdmin ? ' (mode admin)' : ''}</span>
+            {isAdmin && (
+              <button
+                style={{...styles.btn, ...styles.btnPrimary}}
+                onClick={() => {
+                  setManagedPrestataireId(null);
+                  setEditingServiceId(null);
+                  setEditingSchedule(false);
+                  setSelectedServiceForPhotos(null);
+                  setNewPhotosForService([]);
+                  setPage('admin');
+                }}
+              >
+                Panneau admin
+              </button>
+            )}
             <button style={{...styles.btn, ...styles.btnSecondary}} onClick={handleLogout}>
               Déconnexion
             </button>
@@ -1240,29 +1616,19 @@ const RendezVousV6 = () => {
               <div>
                 <div style={{...styles.card, marginBottom: '20px'}}>
                   <h3>Horaires actuels</h3>
-                  {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
-                    const dayName = { monday: 'Lundi', tuesday: 'Mardi', wednesday: 'Mercredi', thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi', sunday: 'Dimanche' }[day];
-                    const hours = prestataire.schedule?.[day] || { start: '', end: '' };
-                    return (
-                      <p key={day} style={{marginBottom: '10px'}}>
-                        <strong>{dayName}:</strong> {hours.start && hours.end ? `${hours.start} - ${hours.end}` : 'Fermé'}
-                      </p>
-                    );
-                  })}
+                  {DAYS.map(({ key, label }) => (
+                    <p key={key} style={{marginBottom: '10px'}}>
+                      <strong>{label} :</strong> {formatDaySlots(prestataire.schedule?.[key])}
+                    </p>
+                  ))}
                 </div>
                 <button
                   style={{...styles.btn, ...styles.btnPrimary}}
                   onClick={() => {
                     setEditingSchedule(true);
-                    setScheduleData(Object.keys(prestataire.schedule || {}).length > 0 ? prestataire.schedule : {
-                      monday: { start: '09:00', end: '18:00' },
-                      tuesday: { start: '09:00', end: '18:00' },
-                      wednesday: { start: '09:00', end: '18:00' },
-                      thursday: { start: '09:00', end: '18:00' },
-                      friday: { start: '09:00', end: '18:00' },
-                      saturday: { start: '10:00', end: '17:00' },
-                      sunday: { start: '', end: '' }
-                    });
+                    setScheduleData(hasAnySlot(prestataire.schedule)
+                      ? normalizeSchedule(prestataire.schedule)
+                      : DEFAULT_SCHEDULE);
                   }}
                 >
                   Modifier les horaires
@@ -1271,44 +1637,76 @@ const RendezVousV6 = () => {
             ) : (
               <div style={styles.card}>
                 <h3>Modifier les horaires</h3>
-                {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
-                  const dayName = { monday: 'Lundi', tuesday: 'Mardi', wednesday: 'Mercredi', thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi', sunday: 'Dimanche' }[day];
+                <p style={{fontSize: '13px', color: '#666', marginBottom: '15px'}}>
+                  Ajoutez plusieurs plages pour une même journée (ex : 09:00 - 12:00 puis 14:00 - 18:00). Un jour sans plage est fermé.
+                </p>
+                {DAYS.map(({ key, label }) => {
+                  const slots = scheduleData[key] || [];
+                  const updateSlot = (index, field, value) => {
+                    setScheduleData(prev => ({
+                      ...prev,
+                      [key]: (prev[key] || []).map((slot, i) => (i === index ? { ...slot, [field]: value } : slot))
+                    }));
+                  };
+                  const removeSlot = (index) => {
+                    setScheduleData(prev => ({
+                      ...prev,
+                      [key]: (prev[key] || []).filter((_, i) => i !== index)
+                    }));
+                  };
+                  const addSlot = () => {
+                    setScheduleData(prev => {
+                      const current = prev[key] || [];
+                      const last = current[current.length - 1];
+                      // Nouvelle plage proposée juste après la précédente
+                      const startMin = last && last.end ? Math.min(toMinutes(last.end) + 60, 22 * 60) : 9 * 60;
+                      const endMin = Math.min(startMin + 4 * 60, 23 * 60);
+                      return { ...prev, [key]: [...current, { start: fromMinutes(startMin), end: fromMinutes(endMin) }] };
+                    });
+                  };
                   return (
-                    <div key={day} style={{marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #ddd'}}>
-                      <label style={{...styles.label, display: 'block', fontWeight: 'bold'}}>{dayName}</label>
-                      <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
-                        <div style={{flex: 1}}>
-                          <label style={styles.label}>Début</label>
-                          <input
-                            type="time"
-                            value={scheduleData[day]?.start || ''}
-                            onChange={(e) => {
-                              const { value } = e.target;
-                              setScheduleData(prev => ({
-                                ...prev,
-                                [day]: { ...prev[day], start: value }
-                              }));
-                            }}
-                            style={styles.input}
-                          />
+                    <div key={key} style={{marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #ddd'}}>
+                      <label style={{display: 'block', fontWeight: 'bold'}}>{label}</label>
+                      {slots.length === 0 && (
+                        <p style={{fontSize: '13px', color: '#666', margin: '8px 0'}}>Fermé</p>
+                      )}
+                      {slots.map((slot, index) => (
+                        <div key={index} style={{display: 'flex', gap: '10px', marginTop: '10px', alignItems: 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
+                          <div style={{flex: 1, minWidth: '110px'}}>
+                            <label style={{fontSize: '13px'}}>Début</label>
+                            <input
+                              type="time"
+                              value={slot.start}
+                              onChange={(e) => updateSlot(index, 'start', e.target.value)}
+                              style={{...styles.input, marginBottom: '0'}}
+                            />
+                          </div>
+                          <div style={{flex: 1, minWidth: '110px'}}>
+                            <label style={{fontSize: '13px'}}>Fin</label>
+                            <input
+                              type="time"
+                              value={slot.end}
+                              onChange={(e) => updateSlot(index, 'end', e.target.value)}
+                              style={{...styles.input, marginBottom: '0'}}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            style={{...styles.btn, ...styles.btnDanger}}
+                            onClick={() => removeSlot(index)}
+                            aria-label={`Supprimer la plage ${index + 1} du ${label}`}
+                          >
+                            Supprimer
+                          </button>
                         </div>
-                        <div style={{flex: 1}}>
-                          <label style={styles.label}>Fin</label>
-                          <input
-                            type="time"
-                            value={scheduleData[day]?.end || ''}
-                            onChange={(e) => {
-                              const { value } = e.target;
-                              setScheduleData(prev => ({
-                                ...prev,
-                                [day]: { ...prev[day], end: value }
-                              }));
-                            }}
-                            style={styles.input}
-                          />
-                        </div>
-                      </div>
-                      <p style={{fontSize: '12px', color: '#666', marginTop: '5px'}}>Laissez vides pour fermeture</p>
+                      ))}
+                      <button
+                        type="button"
+                        style={{...styles.btn, ...styles.btnSecondary, marginTop: '10px'}}
+                        onClick={addSlot}
+                      >
+                        + Ajouter une plage
+                      </button>
                     </div>
                   );
                 })}
@@ -1369,56 +1767,117 @@ const RendezVousV6 = () => {
 
         <h2>Panneau Administrateur</h2>
 
-        <div style={{marginBottom: '20px'}}>
-          {['En attente', 'Approuvé', 'Tous'].map(label => (
+        <div style={{marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px'}}>
+          {[['prestataires', `Prestataires (${prestataires.length})`], ['clients', `Clients (${clients.length})`]].map(([tab, label]) => (
             <button
-              key={label}
-              style={{
-                ...styles.tab,
-                ...(adminFilter === label ? styles.tabActive : {})
-              }}
-              onClick={() => setAdminFilter(label)}
+              key={tab}
+              style={{...styles.tab, ...(adminTab === tab ? styles.tabActive : {})}}
+              onClick={() => setAdminTab(tab)}
             >
               {label}
             </button>
           ))}
         </div>
 
-        <div style={styles.grid}>
-          {prestataires
-            .filter(p => {
-              if (adminFilter === 'En attente') return !p.approved;
-              if (adminFilter === 'Approuvé') return p.approved;
-              return true;
-            })
-            .map(p => (
-              <div key={p.id} style={styles.card}>
-                <h3>{p.name}</h3>
-                <p>{p.city} • {p.category}</p>
-                <p><strong>Email:</strong> {p.email}</p>
-                <p><strong>Status:</strong> {p.approved ? 'Approuvé' : 'En attente'}</p>
-                <p><strong>Services:</strong> {p.services.length}</p>
-                <p><strong>Réservations:</strong> {p.reservations.length}</p>
-                
-                {!p.approved && (
-                  <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+        {adminTab === 'prestataires' && (
+          <>
+            <div style={{marginBottom: '20px'}}>
+              {['En attente', 'Approuvé', 'Tous'].map(label => (
+                <button
+                  key={label}
+                  style={{
+                    ...styles.tab,
+                    ...(adminFilter === label ? styles.tabActive : {})
+                  }}
+                  onClick={() => setAdminFilter(label)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div style={styles.grid}>
+              {prestataires
+                .filter(p => {
+                  if (adminFilter === 'En attente') return !p.approved;
+                  if (adminFilter === 'Approuvé') return p.approved;
+                  return true;
+                })
+                .map(p => (
+                  <div key={p.id} style={styles.card}>
+                    <h3>{p.name}</h3>
+                    <p>{p.city} • {p.category}</p>
+                    <p><strong>Email:</strong> {p.email}</p>
+                    <p><strong>Status:</strong> {p.approved ? 'Approuvé' : 'En attente'}</p>
+                    <p><strong>Services:</strong> {p.services.length}</p>
+                    <p><strong>Réservations:</strong> {p.reservations.length}</p>
+
+                    <div style={{display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap'}}>
+                      {!p.approved && (
+                        <button
+                          style={{...styles.btn, ...styles.btnPrimary, flex: 1}}
+                          onClick={() => handleApprovePrestataire(p.id)}
+                        >
+                          Approuver
+                        </button>
+                      )}
+                      <button
+                        style={{...styles.btn, ...styles.btnWarning, flex: 1}}
+                        onClick={() => {
+                          setManagedPrestataireId(p.id);
+                          setDashboardTab('services');
+                          setPage('dashboard');
+                        }}
+                      >
+                        Gérer
+                      </button>
+                      <button
+                        style={{...styles.btn, ...styles.btnDanger, flex: 1}}
+                        onClick={() => {
+                          if (p.approved && !window.confirm(`Supprimer définitivement ${p.name} ?`)) return;
+                          handleRejectPrestataire(p.id);
+                        }}
+                      >
+                        {p.approved ? 'Supprimer' : 'Rejeter'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+
+        {adminTab === 'clients' && (
+          clients.length > 0 ? (
+            <div style={styles.grid}>
+              {clients.map(c => {
+                const reservationsCount = prestataires.reduce(
+                  (total, p) => total + (p.reservations || []).filter(r => r.clientId === c.id).length,
+                  0
+                );
+                return (
+                  <div key={c.id} style={styles.card}>
+                    <h3>{c.firstName} {c.lastName}</h3>
+                    <p><strong>Email:</strong> {c.email}</p>
+                    <p><strong>Téléphone:</strong> {c.phone}</p>
+                    <p><strong>Réservations:</strong> {reservationsCount}</p>
                     <button
-                      style={{...styles.btn, ...styles.btnPrimary, flex: 1}}
-                      onClick={() => handleApprovePrestataire(p.id)}
+                      style={{...styles.btn, ...styles.btnDanger, width: '100%', marginTop: '10px'}}
+                      onClick={() => {
+                        if (!window.confirm(`Supprimer le compte de ${c.firstName} ${c.lastName} ?`)) return;
+                        setClients(prev => prev.filter(client => client.id !== c.id));
+                      }}
                     >
-                      Approuver
-                    </button>
-                    <button
-                      style={{...styles.btn, ...styles.btnDanger, flex: 1}}
-                      onClick={() => handleRejectPrestataire(p.id)}
-                    >
-                      Rejeter
+                      Supprimer le compte
                     </button>
                   </div>
-                )}
-              </div>
-            ))}
-        </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p>Aucun compte client pour le moment</p>
+          )
+        )}
       </div>
     );
   };
@@ -1428,8 +1887,9 @@ const RendezVousV6 = () => {
     case 'home': return renderHomePage();
     case 'login-client': return renderLoginPage('client');
     case 'login-prestataire': return renderLoginPage('prestataire');
-    case 'login-admin': return renderLoginPage('admin');
     case 'register-prestataire': return renderRegisterPage();
+    case 'register-client': return renderClientRegisterPage();
+    case 'client-reservations': return renderClientReservationsPage() || renderHomePage();
     case 'prestataire-detail': return renderPrestataireDetailPage() || renderHomePage();
     case 'reservation': return renderReservationPage() || renderHomePage();
     case 'dashboard': return renderDashboardPage() || renderHomePage();
