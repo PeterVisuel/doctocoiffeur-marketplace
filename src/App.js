@@ -1624,38 +1624,19 @@ const RendezVousV6 = () => {
               />
             </div>
             <div style={{marginBottom: '10px'}}>
-              <label style={{...styles.label, display: 'block', marginBottom: '6px'}}>Votre activité</label>
-              <div role="radiogroup" aria-label="Votre activité" style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-                {[
-                  { value: 'Beauté', icon: '💇', hint: 'Coiffure, esthétique…' },
-                  { value: 'Artisans', icon: '🔨', hint: 'Artisans, services…' }
-                ].map(option => {
-                  const selected = registrationData.category === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setRegistrationData(prev => ({ ...prev, category: option.value }))}
-                      style={{
-                        flex: 1,
-                        padding: '14px 10px',
-                        borderRadius: '16px',
-                        border: selected ? '2px solid #000' : '1px solid #cfcfcf',
-                        backgroundColor: selected ? '#000' : '#fff',
-                        color: selected ? '#fff' : '#000',
-                        cursor: 'pointer',
-                        textAlign: 'center'
-                      }}
-                    >
-                      <div style={{fontSize: '26px'}}>{option.icon}</div>
-                      <div style={{fontWeight: 800, fontSize: '16px'}}>{option.value}</div>
-                      <div style={{fontSize: '12px', opacity: 0.75}}>{option.hint}</div>
-                    </button>
-                  );
-                })}
-              </div>
+              <label htmlFor="register-category" style={{display: 'block'}}>Votre activité</label>
+              <select
+                id="register-category"
+                name="category"
+                value={registrationData.category}
+                onChange={handleChange}
+                style={{...styles.input, color: registrationData.category ? '#000' : '#757575'}}
+                required
+              >
+                <option value="" disabled>Choisissez votre activité…</option>
+                <option value="Artisans" style={{color: '#000'}}>Artisans</option>
+                <option value="Beauté" style={{color: '#000'}}>Beauté</option>
+              </select>
             </div>
             <div style={{marginBottom: '10px'}}>
               <label style={{...styles.label, display: 'block'}}>Ville</label>
