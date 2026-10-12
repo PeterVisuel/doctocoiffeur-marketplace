@@ -47,6 +47,12 @@ const SAMPLE_DATA = [
 
 const CLIENTS_STORAGE_KEY = 'rendez_v6_clients';
 
+// Comptes administrateurs : ils se connectent via « Connexion Prestataire ».
+// Ajoutez une ligne par administrateur.
+const ADMIN_ACCOUNTS = [
+  { email: 'admin123', password: 'admin123' }
+];
+
 const DAYS = [
   { key: 'monday', label: 'Lundi' },
   { key: 'tuesday', label: 'Mardi' },
@@ -206,6 +212,9 @@ const RendezVousV6 = () => {
   const [selectedPrestataire, setSelectedPrestataire] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [adminFilter, setAdminFilter] = useState('Tous');
+  const [adminTab, setAdminTab] = useState('prestataires');
+  // Prestataire dont l'admin a ouvert le tableau de bord
+  const [managedPrestataireId, setManagedPrestataireId] = useState(null);
   
   // Reservation form state
   const [reservationData, setReservationData] = useState({
@@ -383,8 +392,13 @@ const RendezVousV6 = () => {
 
   // Le prestataire connecté est toujours lu depuis la liste, pour rester synchronisé
   // (nouvelles réservations, approbation admin, etc.)
-  const currentPrestataire = currentUser && currentUser.role === 'prestataire'
-    ? prestataires.find(p => p.id === currentUser.id) || null
+  // Un admin peut ouvrir le tableau de bord de n'importe quel prestataire
+  const isAdmin = Boolean(currentUser && currentUser.role === 'admin');
+  const currentPrestataireId = currentUser?.role === 'prestataire'
+    ? currentUser.id
+    : isAdmin ? managedPrestataireId : null;
+  const currentPrestataire = currentPrestataireId != null
+    ? prestataires.find(p => p.id === currentPrestataireId) || null
     : null;
 
   const currentClient = currentUser && currentUser.role === 'client'
@@ -392,8 +406,8 @@ const RendezVousV6 = () => {
     : null;
 
   const updateCurrentPrestataire = (updater) => {
-    if (!currentUser) return;
-    setPrestataires(prev => prev.map(p => (p.id === currentUser.id ? updater(p) : p)));
+    if (currentPrestataireId == null) return;
+    setPrestataires(prev => prev.map(p => (p.id === currentPrestataireId ? updater(p) : p)));
   };
 
   // Functions
@@ -501,13 +515,18 @@ const RendezVousV6 = () => {
 
   const handleLogin = (email, password, role) => {
     const normalizedEmail = email.trim().toLowerCase();
-    if (role === 'admin') {
-      if (normalizedEmail === 'admin123' && password === 'admin123') {
-        setCurrentUser({ email: 'admin123', role: 'admin' });
+    if (role === 'prestataire') {
+      // Identifiants administrateur saisis dans la connexion prestataire => accès admin
+      const admin = ADMIN_ACCOUNTS.find(
+        a => a.email.toLowerCase() === normalizedEmail && a.password === password
+      );
+      if (admin) {
+        setCurrentUser({ email: admin.email, role: 'admin' });
+        setManagedPrestataireId(null);
+        setAdminTab('prestataires');
         setPage('admin');
         return true;
       }
-    } else if (role === 'prestataire') {
       const prestataire = prestataires.find(
         p => (p.email || '').toLowerCase() === normalizedEmail && p.password === password
       );
@@ -530,6 +549,7 @@ const RendezVousV6 = () => {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setManagedPrestataireId(null);
     setPage('home');
     setLoginForm({ email: '', password: '' });
     setEditingServiceId(null);
@@ -857,20 +877,12 @@ const RendezVousV6 = () => {
               Mes réservations
             </button>
           ) : (
-            <>
-              <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-client')}>
-                Connexion Client
-              </button>
-              <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('register-client')}>
-                Créer un compte client
-              </button>
-            </>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-client')}>
+              Connexion Client
+            </button>
           )}
           <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-prestataire')}>
             Connexion Prestataire
-          </button>
-          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('login-admin')}>
-            Admin
           </button>
         </div>
       </div>
@@ -897,7 +909,7 @@ const RendezVousV6 = () => {
           </button>
         </div>
         <div style={{maxWidth: '400px', margin: '60px auto'}}>
-          <h2>Connexion {role === 'admin' ? 'Admin' : role === 'prestataire' ? 'Prestataire' : 'Client'}</h2>
+          <h2>Connexion {role === 'prestataire' ? 'Prestataire' : 'Client'}</h2>
           <form onSubmit={handleSubmit}>
             <input
               type="text"
@@ -1343,7 +1355,22 @@ const RendezVousV6 = () => {
         <div style={styles.header}>
           <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
           <div style={styles.nav}>
-            <span><strong>{prestataire.name}</strong></span>
+            <span><strong>{prestataire.name}</strong>{isAdmin ? ' (mode admin)' : ''}</span>
+            {isAdmin && (
+              <button
+                style={{...styles.btn, ...styles.btnPrimary}}
+                onClick={() => {
+                  setManagedPrestataireId(null);
+                  setEditingServiceId(null);
+                  setEditingSchedule(false);
+                  setSelectedServiceForPhotos(null);
+                  setNewPhotosForService([]);
+                  setPage('admin');
+                }}
+              >
+                Panneau admin
+              </button>
+            )}
             <button style={{...styles.btn, ...styles.btnSecondary}} onClick={handleLogout}>
               Déconnexion
             </button>
@@ -1740,56 +1767,117 @@ const RendezVousV6 = () => {
 
         <h2>Panneau Administrateur</h2>
 
-        <div style={{marginBottom: '20px'}}>
-          {['En attente', 'Approuvé', 'Tous'].map(label => (
+        <div style={{marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px'}}>
+          {[['prestataires', `Prestataires (${prestataires.length})`], ['clients', `Clients (${clients.length})`]].map(([tab, label]) => (
             <button
-              key={label}
-              style={{
-                ...styles.tab,
-                ...(adminFilter === label ? styles.tabActive : {})
-              }}
-              onClick={() => setAdminFilter(label)}
+              key={tab}
+              style={{...styles.tab, ...(adminTab === tab ? styles.tabActive : {})}}
+              onClick={() => setAdminTab(tab)}
             >
               {label}
             </button>
           ))}
         </div>
 
-        <div style={styles.grid}>
-          {prestataires
-            .filter(p => {
-              if (adminFilter === 'En attente') return !p.approved;
-              if (adminFilter === 'Approuvé') return p.approved;
-              return true;
-            })
-            .map(p => (
-              <div key={p.id} style={styles.card}>
-                <h3>{p.name}</h3>
-                <p>{p.city} • {p.category}</p>
-                <p><strong>Email:</strong> {p.email}</p>
-                <p><strong>Status:</strong> {p.approved ? 'Approuvé' : 'En attente'}</p>
-                <p><strong>Services:</strong> {p.services.length}</p>
-                <p><strong>Réservations:</strong> {p.reservations.length}</p>
-                
-                {!p.approved && (
-                  <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+        {adminTab === 'prestataires' && (
+          <>
+            <div style={{marginBottom: '20px'}}>
+              {['En attente', 'Approuvé', 'Tous'].map(label => (
+                <button
+                  key={label}
+                  style={{
+                    ...styles.tab,
+                    ...(adminFilter === label ? styles.tabActive : {})
+                  }}
+                  onClick={() => setAdminFilter(label)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div style={styles.grid}>
+              {prestataires
+                .filter(p => {
+                  if (adminFilter === 'En attente') return !p.approved;
+                  if (adminFilter === 'Approuvé') return p.approved;
+                  return true;
+                })
+                .map(p => (
+                  <div key={p.id} style={styles.card}>
+                    <h3>{p.name}</h3>
+                    <p>{p.city} • {p.category}</p>
+                    <p><strong>Email:</strong> {p.email}</p>
+                    <p><strong>Status:</strong> {p.approved ? 'Approuvé' : 'En attente'}</p>
+                    <p><strong>Services:</strong> {p.services.length}</p>
+                    <p><strong>Réservations:</strong> {p.reservations.length}</p>
+
+                    <div style={{display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap'}}>
+                      {!p.approved && (
+                        <button
+                          style={{...styles.btn, ...styles.btnPrimary, flex: 1}}
+                          onClick={() => handleApprovePrestataire(p.id)}
+                        >
+                          Approuver
+                        </button>
+                      )}
+                      <button
+                        style={{...styles.btn, ...styles.btnWarning, flex: 1}}
+                        onClick={() => {
+                          setManagedPrestataireId(p.id);
+                          setDashboardTab('services');
+                          setPage('dashboard');
+                        }}
+                      >
+                        Gérer
+                      </button>
+                      <button
+                        style={{...styles.btn, ...styles.btnDanger, flex: 1}}
+                        onClick={() => {
+                          if (p.approved && !window.confirm(`Supprimer définitivement ${p.name} ?`)) return;
+                          handleRejectPrestataire(p.id);
+                        }}
+                      >
+                        {p.approved ? 'Supprimer' : 'Rejeter'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+
+        {adminTab === 'clients' && (
+          clients.length > 0 ? (
+            <div style={styles.grid}>
+              {clients.map(c => {
+                const reservationsCount = prestataires.reduce(
+                  (total, p) => total + (p.reservations || []).filter(r => r.clientId === c.id).length,
+                  0
+                );
+                return (
+                  <div key={c.id} style={styles.card}>
+                    <h3>{c.firstName} {c.lastName}</h3>
+                    <p><strong>Email:</strong> {c.email}</p>
+                    <p><strong>Téléphone:</strong> {c.phone}</p>
+                    <p><strong>Réservations:</strong> {reservationsCount}</p>
                     <button
-                      style={{...styles.btn, ...styles.btnPrimary, flex: 1}}
-                      onClick={() => handleApprovePrestataire(p.id)}
+                      style={{...styles.btn, ...styles.btnDanger, width: '100%', marginTop: '10px'}}
+                      onClick={() => {
+                        if (!window.confirm(`Supprimer le compte de ${c.firstName} ${c.lastName} ?`)) return;
+                        setClients(prev => prev.filter(client => client.id !== c.id));
+                      }}
                     >
-                      Approuver
-                    </button>
-                    <button
-                      style={{...styles.btn, ...styles.btnDanger, flex: 1}}
-                      onClick={() => handleRejectPrestataire(p.id)}
-                    >
-                      Rejeter
+                      Supprimer le compte
                     </button>
                   </div>
-                )}
-              </div>
-            ))}
-        </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p>Aucun compte client pour le moment</p>
+          )
+        )}
       </div>
     );
   };
@@ -1799,7 +1887,6 @@ const RendezVousV6 = () => {
     case 'home': return renderHomePage();
     case 'login-client': return renderLoginPage('client');
     case 'login-prestataire': return renderLoginPage('prestataire');
-    case 'login-admin': return renderLoginPage('admin');
     case 'register-prestataire': return renderRegisterPage();
     case 'register-client': return renderClientRegisterPage();
     case 'client-reservations': return renderClientReservationsPage() || renderHomePage();
