@@ -4,6 +4,39 @@ const LOGO_BASE64 = "/9j/4QC8RXhpZgAASUkqAAgAAAAGABIBAwABAAAAAQAAABoBBQABAAAAVgA
 
 const STORAGE_KEY = 'rendez_v6_prestataires';
 
+// Styles globaux : survols, focus et typographie (impossible en style inline)
+const GLOBAL_CSS = `
+  .rv-app { font-family: 'Nunito', 'Segoe UI', Arial, sans-serif; color: #111; background: #fff; min-height: 100vh; }
+  .rv-app h1, .rv-app h2, .rv-app h3, .rv-app h4 { font-weight: 800; letter-spacing: -0.01em; margin-bottom: 10px; }
+  .rv-app p { line-height: 1.5; margin-bottom: 4px; }
+  .rv-app label { font-size: 14px; font-weight: 600; color: #333; }
+  .rv-app button, .rv-app input, .rv-app select { font-family: inherit; }
+  /* annule la marge de 10px imposée à tous les boutons par index.css */
+  .rv-app button { margin: 0; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .rv-app button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+  .rv-app button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+  .rv-app input, .rv-app select { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+  .rv-app input:focus, .rv-app select:focus { outline: none; border-color: #000 !important; box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.12); }
+  .rv-app input[type=checkbox], .rv-app input[type=radio] { accent-color: #000; width: 16px; height: 16px; vertical-align: middle; }
+  .rv-card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+  .rv-card-hover:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10) !important; }
+  @media (max-width: 768px) {
+    .rv-app h1 { font-size: 24px !important; }
+    .rv-app h2 { font-size: 20px !important; }
+    .rv-app h3 { font-size: 16px !important; }
+    .rv-app h4 { font-size: 14px !important; }
+    .rv-app p { font-size: 14px !important; }
+    .rv-app label { font-size: 13px !important; }
+  }
+  @media (max-width: 480px) {
+    .rv-app h1 { font-size: 21px !important; }
+    .rv-app h2 { font-size: 18px !important; }
+    .rv-app h3 { font-size: 15px !important; }
+    .rv-app h4 { font-size: 13px !important; }
+    .rv-app p, .rv-app button { font-size: 13px !important; }
+  }
+`;
+
 const SAMPLE_DATA = [
   {
     id: 1,
@@ -164,20 +197,105 @@ const normalizePrestataire = (p) => ({
   schedule: normalizeSchedule(p.schedule)
 });
 
-const loadClients = () => {
-  try {
-    const saved = localStorage.getItem(CLIENTS_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (e) {
-    console.error('Comptes clients illisibles, réinitialisation', e);
+const PROMOS_STORAGE_KEY = 'rendez_v6_promos';
+const SETTINGS_STORAGE_KEY = 'rendez_v6_settings';
+
+// Réglages de la plateforme modifiables par l'admin
+const DEFAULT_SETTINGS = {
+  referral: {
+    enabled: false,
+    refereeReward: { type: 'percent', value: 10 }, // offert au filleul (nouveau client)
+    sponsorReward: { type: 'percent', value: 10 }  // offert au parrain après la 1re réservation du filleul
   }
-  return [];
 };
 
-const EMPTY_CLIENT_REGISTRATION = { lastName: '', firstName: '', email: '', phone: '', password: '' };
+const readStorage = (key) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : null;
+  } catch (e) {
+    console.error(`Données locales illisibles (${key}), réinitialisation`, e);
+    return null;
+  }
+};
+
+const writeStorage = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.error(`Sauvegarde locale impossible (${key})`, e);
+  }
+};
+
+const randomSuffix = (length) => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O ni 1/I, faciles à confondre
+  let result = '';
+  for (let i = 0; i < length; i++) result += chars[Math.floor(Math.random() * chars.length)];
+  return result;
+};
+
+const makeReferralCode = (firstName) => {
+  const base = String(firstName || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
+  return `${base || 'CLIENT'}-${randomSuffix(4)}`;
+};
+
+const normalizeCode = (code) => String(code || '').trim().toUpperCase().replace(/\s+/g, '');
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+const formatEuros = (n) =>
+  `${Number.isInteger(n) ? n : n.toFixed(2).replace('.', ',')}€`;
+
+const formatPriceRange = (min, max) =>
+  min === max ? formatEuros(min) : `${formatEuros(min)} - ${formatEuros(max)}`;
+
+const applyDiscount = (price, promo) => {
+  if (!promo) return price;
+  if (promo.type === 'percent') return round2(price * (1 - promo.value / 100));
+  return Math.max(0, round2(price - promo.value));
+};
+
+const describeDiscount = (promo) =>
+  promo.type === 'percent' ? `-${promo.value} %` : `-${formatEuros(promo.value)}`;
+
+// Vérifie le montant d'une réduction saisie ; renvoie un message d'erreur ou null
+const validateDiscount = (type, value) => {
+  const v = parseFloat(value);
+  if (Number.isNaN(v) || v <= 0) return 'La réduction doit être un nombre positif';
+  if (type === 'percent' && v > 100) return 'Un pourcentage ne peut pas dépasser 100 %';
+  return null;
+};
+
+const loadClients = () => {
+  const parsed = readStorage(CLIENTS_STORAGE_KEY);
+  if (!Array.isArray(parsed)) return [];
+  // Chaque client possède un code de parrainage personnel
+  return parsed.map(c => (c.referralCode ? c : { ...c, referralCode: makeReferralCode(c.firstName) }));
+};
+
+const loadPromoCodes = () => {
+  const parsed = readStorage(PROMOS_STORAGE_KEY);
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+const loadSettings = () => {
+  const parsed = readStorage(SETTINGS_STORAGE_KEY);
+  if (!parsed || typeof parsed !== 'object') return DEFAULT_SETTINGS;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...parsed,
+    referral: { ...DEFAULT_SETTINGS.referral, ...(parsed.referral || {}) }
+  };
+};
+
+const EMPTY_PROMO_FORM = {
+  code: '', type: 'percent', value: '', serviceIds: [],
+  startDate: '', endDate: '', maxUses: '', onePerClient: false
+};
+
+const EMPTY_CLIENT_REGISTRATION = { lastName: '', firstName: '', email: '', phone: '', password: '', referralCode: '' };
 
 const loadPrestataires = () => {
   try {
@@ -208,6 +326,8 @@ const RendezVousV6 = () => {
   const [page, setPage] = useState('home');
   const [prestataires, setPrestataires] = useState(loadPrestataires);
   const [clients, setClients] = useState(loadClients);
+  const [promoCodes, setPromoCodes] = useState(loadPromoCodes);
+  const [settings, setSettings] = useState(loadSettings);
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPrestataire, setSelectedPrestataire] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
@@ -215,6 +335,15 @@ const RendezVousV6 = () => {
   const [adminTab, setAdminTab] = useState('prestataires');
   // Prestataire dont l'admin a ouvert le tableau de bord
   const [managedPrestataireId, setManagedPrestataireId] = useState(null);
+  // Formulaire admin d'ajout / modification : { type: 'prestataire'|'client', id (édition), values }
+  const [adminForm, setAdminForm] = useState(null);
+  // Réglages du parrainage en cours de modification (null = pas de modification en cours)
+  const [referralDraft, setReferralDraft] = useState(null);
+
+  // Codes promo
+  const [promoForm, setPromoForm] = useState(EMPTY_PROMO_FORM);
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromoCode, setAppliedPromoCode] = useState('');
   
   // Reservation form state
   const [reservationData, setReservationData] = useState({
@@ -224,7 +353,7 @@ const RendezVousV6 = () => {
     clientPhone: '',
     selectedDate: '',
     selectedTime: '',
-    paymentMethod: 'site' // 'site' ou 'prestataire'
+    paymentMethod: 'prestataire' // paiement en ligne pas encore disponible
   });
   
   // Prestataire dashboard state
@@ -234,6 +363,7 @@ const RendezVousV6 = () => {
   const [newServiceMaxPrice, setNewServiceMaxPrice] = useState('');
   const [newPhotosForService, setNewPhotosForService] = useState([]);
   const [selectedServiceForPhotos, setSelectedServiceForPhotos] = useState(null);
+  const [serviceSavedMessage, setServiceSavedMessage] = useState('');
 
   // Search state
   const [searchType, setSearchType] = useState('ville'); // 'ville', 'nom', 'type'
@@ -281,7 +411,6 @@ const RendezVousV6 = () => {
       padding: isMobile ? '10px' : '20px',
       maxWidth: '1400px',
       margin: '0 auto',
-      fontFamily: 'Arial, sans-serif',
       backgroundColor: '#fff',
       color: '#000',
       minHeight: '100vh'
@@ -291,7 +420,7 @@ const RendezVousV6 = () => {
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: isMobile ? '15px' : '30px',
-      borderBottom: '2px solid #000',
+      borderBottom: '1px solid #ececec',
       paddingBottom: isMobile ? '10px' : '15px',
       flexWrap: 'wrap',
       gap: isMobile ? '10px' : '0'
@@ -307,33 +436,34 @@ const RendezVousV6 = () => {
       flexWrap: 'wrap'
     },
     btn: {
-      padding: isMobile ? '8px 12px' : '10px 20px',
-      borderRadius: '5px',
-      border: '1px solid #000',
+      padding: isMobile ? '9px 16px' : '11px 22px',
+      borderRadius: '999px',
+      border: '1.5px solid #000',
       cursor: 'pointer',
-      fontSize: isMobile ? '12px' : '14px',
-      fontWeight: 'bold',
-      transition: 'all 0.3s'
+      fontSize: isMobile ? '13px' : '14px',
+      fontWeight: 700
     },
     btnPrimary: { backgroundColor: '#000', color: '#fff' },
     btnSecondary: { backgroundColor: '#fff', color: '#000' },
-    btnDanger: { backgroundColor: '#ff6b6b', color: '#fff' },
-    btnWarning: { backgroundColor: '#ffa500', color: '#fff' },
+    btnDanger: { backgroundColor: '#ff6b6b', color: '#fff', borderColor: '#ff6b6b' },
+    btnWarning: { backgroundColor: '#ffa500', color: '#fff', borderColor: '#ffa500' },
     input: {
-      padding: isMobile ? '10px' : '10px',
-      border: '1px solid #000',
-      borderRadius: '5px',
+      padding: '12px 14px',
+      border: '1px solid #cfcfcf',
+      borderRadius: '12px',
       marginBottom: '10px',
       width: '100%',
       boxSizing: 'border-box',
+      backgroundColor: '#fff',
       fontSize: isMobile ? '16px' : '14px'
     },
     card: {
-      border: '1px solid #ddd',
-      borderRadius: '5px',
-      padding: isMobile ? '10px' : '15px',
+      border: '1px solid #eee',
+      borderRadius: '16px',
+      padding: isMobile ? '14px' : '20px',
       marginBottom: '15px',
-      backgroundColor: '#f9f9f9'
+      backgroundColor: '#fff',
+      boxShadow: '0 2px 12px rgba(0, 0, 0, 0.05)'
     },
     grid: {
       display: 'grid',
@@ -342,14 +472,26 @@ const RendezVousV6 = () => {
       marginBottom: '20px'
     },
     tab: {
-      padding: isMobile ? '8px 10px' : '10px 15px',
-      border: '1px solid #000',
+      padding: isMobile ? '8px 14px' : '10px 18px',
+      border: '1.5px solid #000',
+      borderRadius: '999px',
       cursor: 'pointer',
-      backgroundColor: '#f0f0f0',
-      marginRight: '5px',
+      backgroundColor: '#fff',
+      color: '#000',
+      marginRight: '8px',
+      marginBottom: '8px',
+      fontWeight: 700,
       fontSize: isMobile ? '12px' : '14px'
     },
     tabActive: { backgroundColor: '#000', color: '#fff' },
+    badge: {
+      display: 'inline-block',
+      padding: '2px 8px',
+      borderRadius: '10px',
+      fontSize: '12px',
+      fontWeight: 'bold'
+    },
+    successText: { color: '#1e7e34', fontSize: '14px', marginTop: '10px' },
     searchContainer: {
       display: 'flex',
       gap: isMobile ? '5px' : '10px',
@@ -364,9 +506,9 @@ const RendezVousV6 = () => {
       flexWrap: 'wrap'
     },
     footer: {
-      marginTop: isMobile ? '20px' : '40px',
-      borderTop: '2px solid #000',
-      paddingTop: isMobile ? '10px' : '20px',
+      marginTop: isMobile ? '30px' : '50px',
+      borderTop: '1px solid #ececec',
+      paddingTop: isMobile ? '20px' : '30px',
       textAlign: 'center',
       fontSize: isMobile ? '12px' : '14px'
     },
@@ -389,6 +531,9 @@ const RendezVousV6 = () => {
       console.error('Sauvegarde des comptes clients impossible', e);
     }
   }, [clients]);
+
+  useEffect(() => { writeStorage(PROMOS_STORAGE_KEY, promoCodes); }, [promoCodes]);
+  useEffect(() => { writeStorage(SETTINGS_STORAGE_KEY, settings); }, [settings]);
 
   // Le prestataire connecté est toujours lu depuis la liste, pour rester synchronisé
   // (nouvelles réservations, approbation admin, etc.)
@@ -438,11 +583,41 @@ const RendezVousV6 = () => {
     return true;
   };
 
+  // Crée un bon de réduction personnel (parrainage), utilisable une fois
+  const createReferralReward = (clientId, reward, label) => ({
+    id: `${Date.now()}-${randomSuffix(6)}`,
+    code: `${label}-${randomSuffix(6)}`,
+    kind: 'parrainage',
+    prestataireId: null, // valable chez tous les prestataires
+    clientId,
+    type: reward.type,
+    value: reward.value,
+    serviceIds: [],
+    startDate: '',
+    endDate: '',
+    maxUses: 1,
+    onePerClient: true,
+    usedCount: 0,
+    usedBy: [],
+    status: 'active', // le programme a été activé par l'admin
+    createdAt: new Date().toISOString()
+  });
+
   const handleRegisterClient = (formData) => {
     const email = formData.email.trim().toLowerCase();
     if (clients.some(c => c.email === email)) {
       alert('Un compte client existe déjà avec cet email');
       return false;
+    }
+    const referralEnabled = settings.referral.enabled;
+    const sponsorCode = normalizeCode(formData.referralCode);
+    let sponsor = null;
+    if (referralEnabled && sponsorCode) {
+      sponsor = clients.find(c => normalizeCode(c.referralCode) === sponsorCode);
+      if (!sponsor) {
+        alert('Code de parrainage inconnu. Vérifiez-le ou laissez le champ vide.');
+        return false;
+      }
     }
     const newClient = {
       id: Math.max(...clients.map(c => c.id || 0), 0) + 1,
@@ -451,13 +626,230 @@ const RendezVousV6 = () => {
       email,
       phone: formData.phone.trim(),
       password: formData.password,
+      referralCode: makeReferralCode(formData.firstName),
+      referredBy: sponsor ? sponsor.id : null,
+      sponsorRewarded: false,
       createdAt: new Date().toISOString()
     };
     setClients(prev => [...prev, newClient]);
+    let welcome = `Bienvenue ${newClient.firstName} ! Votre compte est créé.`;
+    if (sponsor) {
+      const reward = createReferralReward(newClient.id, settings.referral.refereeReward, 'BIENVENUE');
+      setPromoCodes(prev => [...prev, reward]);
+      welcome += `\nGrâce au parrainage, vous bénéficiez de ${describeDiscount(reward)} sur votre première réservation (code ${reward.code}, visible dans « Mes réservations »).`;
+    }
     setCurrentUser({ id: newClient.id, role: 'client' });
-    alert(`Bienvenue ${newClient.firstName} ! Votre compte est créé.`);
+    alert(welcome);
     setPage('home');
     return true;
+  };
+
+  // ----- Ajout / modification de comptes par l'admin -----
+  const openAdminForm = (type, existing = null) => {
+    const values = type === 'prestataire'
+      ? {
+          name: existing?.name || '',
+          category: existing?.category || 'Beauté',
+          city: existing?.city || '',
+          email: existing?.email || '',
+          password: ''
+        }
+      : {
+          lastName: existing?.lastName || '',
+          firstName: existing?.firstName || '',
+          email: existing?.email || '',
+          phone: existing?.phone || '',
+          password: ''
+        };
+    setAdminForm({ type, id: existing ? existing.id : null, values });
+    window.scrollTo(0, 0);
+  };
+
+  const handleSaveAdminForm = () => {
+    if (!adminForm) return;
+    const { type, id, values } = adminForm;
+    const isEdit = id != null;
+    const email = values.email.trim().toLowerCase();
+    const required = type === 'prestataire'
+      ? [values.name, values.city, values.email]
+      : [values.lastName, values.firstName, values.email, values.phone];
+    if (required.some(v => !String(v).trim()) || (!isEdit && !values.password)) {
+      alert('Remplissez tous les champs');
+      return;
+    }
+    if (values.password && values.password.length < 6) {
+      alert('Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+    const list = type === 'prestataire' ? prestataires : clients;
+    if (list.some(item => (item.email || '').toLowerCase() === email && item.id !== id)) {
+      alert('Un compte existe déjà avec cet email');
+      return;
+    }
+
+    if (type === 'prestataire') {
+      const fields = { name: values.name.trim(), category: values.category, city: values.city.trim(), email };
+      if (values.password) fields.password = values.password;
+      if (isEdit) {
+        setPrestataires(prev => prev.map(p => (p.id === id ? { ...p, ...fields } : p)));
+      } else {
+        setPrestataires(prev => [
+          ...prev,
+          normalizePrestataire({
+            ...fields,
+            id: Math.max(...prev.map(p => p.id || 0), 0) + 1,
+            approved: true, // créé par l'admin : directement actif
+            emailVerified: true,
+            services: [],
+            reservations: [],
+            team: [],
+            schedule: DEFAULT_SCHEDULE
+          })
+        ]);
+      }
+    } else {
+      const fields = {
+        lastName: values.lastName.trim(),
+        firstName: values.firstName.trim(),
+        email,
+        phone: values.phone.trim()
+      };
+      if (values.password) fields.password = values.password;
+      if (isEdit) {
+        setClients(prev => prev.map(c => (c.id === id ? { ...c, ...fields } : c)));
+      } else {
+        setClients(prev => [
+          ...prev,
+          {
+            ...fields,
+            id: Math.max(...prev.map(c => c.id || 0), 0) + 1,
+            referralCode: makeReferralCode(fields.firstName),
+            referredBy: null,
+            sponsorRewarded: false,
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      }
+    }
+    alert(isEdit ? 'Modifications enregistrées' : `${type === 'prestataire' ? 'Prestataire' : 'Client'} ajouté. Communiquez-lui son mot de passe provisoire.`);
+    setAdminForm(null);
+  };
+
+  // ----- Codes promo -----
+  // Vérifie qu'un code est utilisable ; renvoie { promo } ou { error }
+  const checkPromoCode = (input, { prestataireId, serviceId, clientId }) => {
+    const code = normalizeCode(input);
+    if (!code) return { error: 'Saisissez un code' };
+    const promo = promoCodes.find(pc => normalizeCode(pc.code) === code);
+    if (!promo) return { error: 'Code inconnu' };
+    if (promo.status === 'pending') return { error: "Ce code n'est pas encore activé" };
+    if (promo.status !== 'active') return { error: "Ce code n'est plus actif" };
+    if (promo.prestataireId != null && promo.prestataireId !== prestataireId) {
+      return { error: "Ce code n'est pas valable chez ce prestataire" };
+    }
+    if (promo.serviceIds && promo.serviceIds.length > 0 && !promo.serviceIds.includes(serviceId)) {
+      return { error: "Ce code n'est pas valable pour cette prestation" };
+    }
+    const today = todayString();
+    if (promo.startDate && today < promo.startDate) return { error: `Ce code sera valable à partir du ${promo.startDate}` };
+    if (promo.endDate && today > promo.endDate) return { error: 'Ce code a expiré' };
+    if (promo.maxUses && (promo.usedCount || 0) >= promo.maxUses) {
+      return { error: promo.clientId ? 'Ce bon a déjà été utilisé' : "Ce code a atteint son nombre maximum d'utilisations" };
+    }
+    if (promo.clientId != null && promo.clientId !== clientId) {
+      return { error: 'Ce bon est personnel : connectez-vous avec le compte concerné' };
+    }
+    if (promo.onePerClient) {
+      if (clientId == null) return { error: 'Connectez-vous à votre compte client pour utiliser ce code' };
+      if ((promo.usedBy || []).includes(clientId)) return { error: 'Vous avez déjà utilisé ce code' };
+    }
+    return { promo };
+  };
+
+  const handleCreatePromo = () => {
+    const code = normalizeCode(promoForm.code);
+    if (!code || promoForm.value === '') {
+      alert('Renseignez au moins le code et la réduction');
+      return;
+    }
+    if (!/^[A-Z0-9-]{3,20}$/.test(code)) {
+      alert('Le code doit contenir 3 à 20 caractères : lettres, chiffres ou tirets');
+      return;
+    }
+    const discountError = validateDiscount(promoForm.type, promoForm.value);
+    if (discountError) {
+      alert(discountError);
+      return;
+    }
+    if (promoForm.startDate && promoForm.endDate && promoForm.startDate > promoForm.endDate) {
+      alert('La date de fin doit être après la date de début');
+      return;
+    }
+    const maxUses = promoForm.maxUses === '' ? null : parseInt(promoForm.maxUses, 10);
+    if (maxUses !== null && (Number.isNaN(maxUses) || maxUses < 1)) {
+      alert("Le nombre maximum d'utilisations doit être un entier positif");
+      return;
+    }
+    if (promoCodes.some(pc => normalizeCode(pc.code) === code)) {
+      alert('Ce code existe déjà, choisissez-en un autre');
+      return;
+    }
+    setPromoCodes(prev => [
+      ...prev,
+      {
+        id: `${Date.now()}-${randomSuffix(6)}`,
+        code,
+        kind: 'promo',
+        prestataireId: currentPrestataireId,
+        clientId: null,
+        type: promoForm.type,
+        value: parseFloat(promoForm.value),
+        serviceIds: promoForm.serviceIds,
+        startDate: promoForm.startDate,
+        endDate: promoForm.endDate,
+        maxUses,
+        onePerClient: promoForm.onePerClient,
+        usedCount: 0,
+        usedBy: [],
+        // Un code créé par un prestataire doit être activé par l'admin
+        status: isAdmin ? 'active' : 'pending',
+        createdAt: new Date().toISOString()
+      }
+    ]);
+    setPromoForm(EMPTY_PROMO_FORM);
+    alert(isAdmin
+      ? `Code ${code} enregistré et actif.`
+      : `Code ${code} enregistré. Il sera utilisable dès qu'un administrateur l'aura activé.`);
+  };
+
+  const setPromoStatus = (id, status) => {
+    setPromoCodes(prev => prev.map(pc => (pc.id === id ? { ...pc, status } : pc)));
+  };
+
+  const handleDeletePromo = (id) => {
+    if (!window.confirm('Supprimer ce code ?')) return;
+    setPromoCodes(prev => prev.filter(pc => pc.id !== id));
+  };
+
+  const handleSaveReferralSettings = () => {
+    if (!referralDraft) return;
+    for (const reward of [referralDraft.refereeReward, referralDraft.sponsorReward]) {
+      const error = validateDiscount(reward.type, reward.value);
+      if (error) {
+        alert(error);
+        return;
+      }
+    }
+    setSettings(prev => ({
+      ...prev,
+      referral: {
+        enabled: referralDraft.enabled,
+        refereeReward: { type: referralDraft.refereeReward.type, value: parseFloat(referralDraft.refereeReward.value) },
+        sponsorReward: { type: referralDraft.sponsorReward.type, value: parseFloat(referralDraft.sponsorReward.value) }
+      }
+    }));
+    setReferralDraft(null);
+    alert('Réglages du parrainage enregistrés');
   };
 
   const handleEditService = (serviceId, service) => {
@@ -556,9 +948,15 @@ const RendezVousV6 = () => {
     setEditingSchedule(false);
     setSelectedServiceForPhotos(null);
     setNewPhotosForService([]);
+    setAdminForm(null);
+    setReferralDraft(null);
+    setPromoForm(EMPTY_PROMO_FORM);
+    setPromoInput('');
+    setAppliedPromoCode('');
+    setServiceSavedMessage('');
     setReservationData({
       clientName: '', clientFirstName: '', clientEmail: '', clientPhone: '',
-      selectedDate: '', selectedTime: '', paymentMethod: 'site'
+      selectedDate: '', selectedTime: '', paymentMethod: 'prestataire'
     });
   };
 
@@ -595,6 +993,8 @@ const RendezVousV6 = () => {
   // Pré-remplit le formulaire de réservation avec les infos du client connecté
   const startReservation = (service) => {
     setSelectedService(service);
+    setPromoInput('');
+    setAppliedPromoCode('');
     if (currentClient) {
       setReservationData(prev => ({
         ...prev,
@@ -607,21 +1007,32 @@ const RendezVousV6 = () => {
     setPage('reservation');
   };
 
-  const processPayment = async (method) => {
-    if (method === 'site') {
-      // TODO: Integrate Stripe
-      // For now, simulate payment
-      alert('Redirection vers Stripe...');
-      completeReservation();
-    } else {
-      // Payment at prestataire location
-      completeReservation();
-    }
+  // Paiement en ligne (Stripe) pas encore développé : le client règle sur place
+  const processPayment = () => {
+    completeReservation();
   };
 
   const completeReservation = async () => {
     // TODO: Send email via SendGrid
     if (!selectedService || !selectedPrestataire) return;
+
+    // Le code promo est revérifié au moment de confirmer
+    let promo = null;
+    if (appliedPromoCode) {
+      const check = checkPromoCode(appliedPromoCode, {
+        prestataireId: selectedPrestataire.id,
+        serviceId: selectedService.id,
+        clientId: currentClient ? currentClient.id : null
+      });
+      if (check.error) {
+        alert(`Code promo refusé : ${check.error}`);
+        setAppliedPromoCode('');
+        return;
+      }
+      promo = check.promo;
+    }
+    const minPrice = selectedService.minPrice;
+    const maxPrice = selectedService.maxPrice;
 
     const reservation = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -634,8 +1045,13 @@ const RendezVousV6 = () => {
       serviceName: selectedService.name,
       date: reservationData.selectedDate,
       time: reservationData.selectedTime,
-      paymentMethod: reservationData.paymentMethod,
-      status: reservationData.paymentMethod === 'site' ? 'paid' : 'pending',
+      paymentMethod: 'prestataire',
+      status: 'pending',
+      price: { min: minPrice, max: maxPrice },
+      finalPrice: { min: applyDiscount(minPrice, promo), max: applyDiscount(maxPrice, promo) },
+      promo: promo
+        ? { code: promo.code, kind: promo.kind, type: promo.type, value: promo.value }
+        : null
     };
 
     setPrestataires(prev => prev.map(p =>
@@ -644,11 +1060,34 @@ const RendezVousV6 = () => {
         : p
     ));
 
+    const clientId = currentClient ? currentClient.id : null;
+    if (promo) {
+      setPromoCodes(prev => prev.map(pc => (pc.id === promo.id
+        ? {
+            ...pc,
+            usedCount: (pc.usedCount || 0) + 1,
+            usedBy: clientId != null ? [...(pc.usedBy || []), clientId] : (pc.usedBy || [])
+          }
+        : pc)));
+    }
+
+    // Parrainage : le parrain reçoit son bon à la première réservation du filleul
+    if (currentClient && currentClient.referredBy != null && !currentClient.sponsorRewarded) {
+      const sponsorExists = clients.some(c => c.id === currentClient.referredBy);
+      if (settings.referral.enabled && sponsorExists) {
+        const reward = createReferralReward(currentClient.referredBy, settings.referral.sponsorReward, 'PARRAIN');
+        setPromoCodes(prev => [...prev, reward]);
+      }
+      setClients(prev => prev.map(c => (c.id === currentClient.id ? { ...c, sponsorRewarded: true } : c)));
+    }
+
     alert('Réservation confirmée !');
     setPage('home');
+    setPromoInput('');
+    setAppliedPromoCode('');
     setReservationData({
       clientName: '', clientFirstName: '', clientEmail: '', clientPhone: '',
-      selectedDate: '', selectedTime: '', paymentMethod: 'site'
+      selectedDate: '', selectedTime: '', paymentMethod: 'prestataire'
     });
   };
 
@@ -688,6 +1127,9 @@ const RendezVousV6 = () => {
         }
       ]
     }));
+    setServiceSavedMessage(currentPrestataire && currentPrestataire.approved
+      ? `✓ « ${serviceName.trim()} » est enregistrée et visible sur le site.`
+      : `✓ « ${serviceName.trim()} » est enregistrée. Elle sera visible sur le site dès la validation du compte par l'administrateur.`);
     setServiceName('');
     setNewServiceMinPrice('');
     setNewServiceMaxPrice('');
@@ -751,24 +1193,6 @@ const RendezVousV6 = () => {
   // l'intérieur d'un autre le recrée à chaque rendu : React démonte alors toute
   // la page à chaque frappe et les champs de saisie perdent le curseur.
   const renderHomePage = () => (
-    <>
-      <style>{`
-        @media (max-width: 768px) {
-          h1 { font-size: 24px !important; }
-          h2 { font-size: 20px !important; }
-          h3 { font-size: 16px !important; }
-          h4 { font-size: 14px !important; }
-          p { font-size: 14px !important; }
-          label { font-size: 13px !important; }
-        }
-        @media (max-width: 480px) {
-          h1 { font-size: 20px !important; }
-          h2 { font-size: 18px !important; }
-          h3 { font-size: 14px !important; }
-          h4 { font-size: 12px !important; }
-          p, button { font-size: 12px !important; }
-        }
-      `}</style>
     <div style={styles.container}>
       <div style={styles.header}>
         <img src={`data:image/jpeg;base64,${LOGO_BASE64}`} alt="Rendez Vous" style={styles.logo} />
@@ -808,12 +1232,22 @@ const RendezVousV6 = () => {
         </div>
       )}
 
-      <div style={{ marginBottom: '30px' }}>
-        <p style={{ textAlign: 'center', fontSize: '16px', fontWeight: 'normal', color: '#666' }}>La plateforme qui simplifie les réservations des professionnels</p>
-      </div>
-
-      {/* Search */}
-      <div style={styles.searchContainer}>
+      {/* Bandeau d'accueil + recherche */}
+      <div style={{
+        backgroundColor: '#000',
+        color: '#fff',
+        borderRadius: '24px',
+        padding: isMobile ? '24px 16px' : '45px 40px',
+        marginBottom: '30px',
+        textAlign: 'center'
+      }}>
+        <h1 style={{fontSize: isMobile ? '24px' : '36px', marginBottom: '8px'}}>
+          Votre prochain rendez-vous, en quelques clics ✨
+        </h1>
+        <p style={{color: '#ccc', fontSize: '16px', marginBottom: isMobile ? '18px' : '28px'}}>
+          La plateforme qui simplifie les réservations des professionnels
+        </p>
+      <div style={{...styles.searchContainer, maxWidth: '800px', margin: '0 auto'}}>
         <select
           value={searchType}
           onChange={(e) => setSearchType(e.target.value)}
@@ -830,20 +1264,21 @@ const RendezVousV6 = () => {
           style={{...styles.input, marginBottom: '0', flex: 1}}
         />
         <button
-          style={{...styles.btn, ...styles.btnPrimary}}
+          style={{...styles.btn, backgroundColor: '#fff', color: '#000', borderColor: '#fff'}}
           onClick={handleSearch}
         >
-          Rechercher
+          🔍 Rechercher
         </button>
+      </div>
       </div>
 
       {/* Results */}
       {searchResults.length > 0 ? (
         <div style={styles.grid}>
           {searchResults.map(p => (
-            <div key={p.id} style={styles.card}>
+            <div key={p.id} className="rv-card-hover" style={styles.card}>
               <h3>{p.name}</h3>
-              <p>{p.city}</p>
+              <p>📍 {p.city}</p>
               <p style={{fontSize: '12px', color: '#666'}}>{p.category}</p>
               <div style={{marginBottom: '10px'}}>
                 {p.services.map(s => (
@@ -870,7 +1305,7 @@ const RendezVousV6 = () => {
       )}
 
       <div style={styles.footer}>
-        <p style={{marginBottom: '20px', color: '#666'}}>Accès rapide</p>
+        <p style={{marginBottom: '15px', color: '#666'}}>Accès rapide</p>
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
           {currentClient ? (
             <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('client-reservations')}>
@@ -887,7 +1322,6 @@ const RendezVousV6 = () => {
         </div>
       </div>
     </div>
-    </>
   );
 
   const renderLoginPage = (role) => {
@@ -991,7 +1425,10 @@ const RendezVousV6 = () => {
       { name: 'firstName', label: 'Prénom', type: 'text', placeholder: 'Ex: Marie', autoComplete: 'given-name' },
       { name: 'email', label: 'Email', type: 'email', placeholder: 'Ex: marie@email.fr', autoComplete: 'email' },
       { name: 'phone', label: 'Téléphone', type: 'tel', placeholder: 'Ex: 06 12 34 56 78', autoComplete: 'tel' },
-      { name: 'password', label: 'Mot de passe', type: 'password', placeholder: 'Minimum 6 caractères', autoComplete: 'new-password' }
+      { name: 'password', label: 'Mot de passe', type: 'password', placeholder: 'Minimum 6 caractères', autoComplete: 'new-password' },
+      ...(settings.referral.enabled
+        ? [{ name: 'referralCode', label: 'Code de parrainage (facultatif)', type: 'text', placeholder: 'Ex: JULIE-AB12', autoComplete: 'off' }]
+        : [])
     ];
 
     return (
@@ -1013,10 +1450,10 @@ const RendezVousV6 = () => {
                   name={field.name}
                   placeholder={field.placeholder}
                   autoComplete={field.autoComplete}
-                  value={clientRegistration[field.name]}
+                  value={clientRegistration[field.name] || ''}
                   onChange={handleChange}
                   style={styles.input}
-                  required
+                  required={field.name !== 'referralCode'}
                 />
               </div>
             ))}
@@ -1032,8 +1469,28 @@ const RendezVousV6 = () => {
     );
   };
 
+  // Prix d'une réservation, avec la réduction éventuelle
+  const renderReservationPrice = (res) => {
+    if (!res.price) return null;
+    const original = formatPriceRange(res.price.min, res.price.max);
+    if (!res.promo) return <p>Prix : {original}</p>;
+    return (
+      <p>
+        Prix : <s>{original}</s> <strong>{formatPriceRange(res.finalPrice.min, res.finalPrice.max)}</strong>
+        {' '}({res.promo.kind === 'parrainage' ? 'parrainage' : 'code'} {res.promo.code} : {describeDiscount(res.promo)})
+      </p>
+    );
+  };
+
+  const renderPaymentLabel = (res) =>
+    res.paymentMethod === 'site' ? 'Sur le site (payé)' : 'À régler au prestataire';
+
   const renderClientReservationsPage = () => {
     if (!currentClient) return null;
+
+    const myVouchers = promoCodes.filter(pc =>
+      pc.clientId === currentClient.id && pc.status === 'active' && (pc.usedCount || 0) < (pc.maxUses || 1)
+    );
 
     const myReservations = prestataires
       .flatMap(p => (p.reservations || [])
@@ -1054,6 +1511,29 @@ const RendezVousV6 = () => {
             </button>
           </div>
         </div>
+        {settings.referral.enabled && (
+          <div style={{...styles.card, backgroundColor: '#fff8e1'}}>
+            <h3>Parrainage</h3>
+            <p>Votre code de parrainage : <strong style={{fontSize: '18px'}}>{currentClient.referralCode}</strong></p>
+            <p style={{fontSize: '13px', color: '#666'}}>
+              Partagez-le : votre filleul obtient {describeDiscount(settings.referral.refereeReward)} sur sa première réservation,
+              et vous recevez {describeDiscount(settings.referral.sponsorReward)} dès qu'il a réservé.
+            </p>
+          </div>
+        )}
+
+        {myVouchers.length > 0 && (
+          <div style={styles.card}>
+            <h3>Mes bons de réduction</h3>
+            {myVouchers.map(v => (
+              <p key={v.id}>
+                <strong>{v.code}</strong> : {describeDiscount(v)} sur une réservation, chez le prestataire de votre choix
+              </p>
+            ))}
+            <p style={{fontSize: '13px', color: '#666'}}>Saisissez le code au moment de réserver.</p>
+          </div>
+        )}
+
         <h2>Mes réservations</h2>
         {myReservations.length > 0 ? (
           myReservations.map(res => (
@@ -1061,7 +1541,8 @@ const RendezVousV6 = () => {
               <h4>{res.serviceName}</h4>
               <p><strong>{res.prestataireName}</strong> • {res.prestataireCity}</p>
               <p>📅 {res.date} à {normalizeTime(res.time)}</p>
-              <p>Paiement : {res.paymentMethod === 'site' ? 'Sur le site (payé)' : 'Au prestataire (en attente)'}</p>
+              {renderReservationPrice(res)}
+              <p>Paiement : {renderPaymentLabel(res)}</p>
             </div>
           ))
         ) : (
@@ -1226,6 +1707,32 @@ const RendezVousV6 = () => {
     const timeOptions = getTimeOptions(prestataireActuel.schedule, reservationData.selectedDate);
     const isClosedThatDay = Boolean(reservationData.selectedDate) && timeOptions.length === 0;
 
+    const promoContext = {
+      prestataireId: selectedPrestataire.id,
+      serviceId: selectedService.id,
+      clientId: currentClient ? currentClient.id : null
+    };
+    const appliedCheck = appliedPromoCode ? checkPromoCode(appliedPromoCode, promoContext) : null;
+    const appliedPromo = appliedCheck && appliedCheck.promo ? appliedCheck.promo : null;
+    const originalPrice = formatPriceRange(selectedService.minPrice, selectedService.maxPrice);
+    const discountedPrice = appliedPromo
+      ? formatPriceRange(applyDiscount(selectedService.minPrice, appliedPromo), applyDiscount(selectedService.maxPrice, appliedPromo))
+      : null;
+    // Bons personnels du client connecté utilisables ici
+    const usableVouchers = currentClient
+      ? promoCodes.filter(pc => pc.clientId === currentClient.id && !checkPromoCode(pc.code, promoContext).error)
+      : [];
+
+    const applyPromo = (code) => {
+      const check = checkPromoCode(code, promoContext);
+      if (check.error) {
+        alert(check.error);
+        return;
+      }
+      setAppliedPromoCode(check.promo.code);
+      setPromoInput(check.promo.code);
+    };
+
     return (
       <div style={styles.container}>
         <div style={styles.header}>
@@ -1238,6 +1745,9 @@ const RendezVousV6 = () => {
         <div style={{maxWidth: '600px', margin: '40px auto'}}>
           <h2>Réservation: {selectedService.name}</h2>
           <p>Chez: <strong>{selectedPrestataire.name}</strong></p>
+          <p>
+            Prix : {appliedPromo ? <><s>{originalPrice}</s> <strong>{discountedPrice}</strong></> : <strong>{originalPrice}</strong>}
+          </p>
 
           <form onSubmit={(e) => {
             e.preventDefault();
@@ -1314,30 +1824,66 @@ const RendezVousV6 = () => {
               </p>
             )}
 
-            <h3>Mode de paiement</h3>
-            <label style={{display: 'block', marginBottom: '10px', cursor: 'pointer'}}>
-              <input
-                type="radio"
-                name="payment"
-                value="site"
-                checked={reservationData.paymentMethod === 'site'}
-                onChange={updateReservationField('paymentMethod')}
-              />
-              Payer sur le site (Stripe)
-            </label>
-            <label style={{display: 'block', marginBottom: '20px', cursor: 'pointer'}}>
-              <input
-                type="radio"
-                name="payment"
-                value="prestataire"
-                checked={reservationData.paymentMethod === 'prestataire'}
-                onChange={updateReservationField('paymentMethod')}
-              />
-              Payer directement au prestataire
-            </label>
+            <h3>Code promo ou parrainage</h3>
+            {appliedPromo ? (
+              <div style={{...styles.card, backgroundColor: '#e8f5e9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap'}}>
+                <span>
+                  ✓ Code <strong>{appliedPromo.code}</strong> appliqué : {describeDiscount(appliedPromo)}
+                  {' '}→ <strong>{discountedPrice}</strong>
+                </span>
+                <button
+                  type="button"
+                  style={{...styles.btn, ...styles.btnSecondary}}
+                  onClick={() => { setAppliedPromoCode(''); setPromoInput(''); }}
+                >
+                  Retirer
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                  <input
+                    type="text"
+                    placeholder="Code promo (facultatif)"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value)}
+                    style={{...styles.input, marginBottom: '0', flex: 1, textTransform: 'uppercase'}}
+                  />
+                  <button
+                    type="button"
+                    style={{...styles.btn, ...styles.btnSecondary}}
+                    onClick={() => applyPromo(promoInput)}
+                  >
+                    Appliquer
+                  </button>
+                </div>
+                {usableVouchers.length > 0 && (
+                  <p style={{fontSize: '13px'}}>
+                    Vos bons disponibles :{' '}
+                    {usableVouchers.map(v => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        style={{...styles.btn, ...styles.btnWarning, padding: '4px 10px', marginRight: '5px'}}
+                        onClick={() => applyPromo(v.code)}
+                      >
+                        {v.code} ({describeDiscount(v)})
+                      </button>
+                    ))}
+                  </p>
+                )}
+              </>
+            )}
+
+            <h3>Paiement</h3>
+            <p style={{marginBottom: '5px'}}>
+              Vous réglez directement au prestataire, le jour du rendez-vous
+              {appliedPromo ? ', réduction déduite' : ''}.
+            </p>
+            <p style={{fontSize: '12px', color: '#666', marginBottom: '20px'}}>Paiement en ligne : bientôt disponible.</p>
 
             <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
-              {reservationData.paymentMethod === 'site' ? 'Procéder au paiement' : 'Confirmer la réservation'}
+              Confirmer la réservation
             </button>
           </form>
         </div>
@@ -1378,7 +1924,7 @@ const RendezVousV6 = () => {
         </div>
 
         <div style={{marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px'}}>
-          {['services', 'schedule', 'reservations'].map(tab => (
+          {['services', 'schedule', 'reservations', 'promos'].map(tab => (
             <button
               key={tab}
               style={{
@@ -1390,6 +1936,7 @@ const RendezVousV6 = () => {
               {tab === 'services' && 'Services & Tarifs'}
               {tab === 'schedule' && 'Créneaux'}
               {tab === 'reservations' && 'Réservations'}
+              {tab === 'promos' && 'Codes promo'}
             </button>
           ))}
         </div>
@@ -1407,7 +1954,7 @@ const RendezVousV6 = () => {
                   type="text"
                   placeholder="Ex: Coupe cheveux"
                   value={serviceName}
-                  onChange={(e) => setServiceName(e.target.value)}
+                  onChange={(e) => { setServiceName(e.target.value); setServiceSavedMessage(''); }}
                   style={{...styles.input, marginBottom: '0'}}
                 />
               </div>
@@ -1437,8 +1984,14 @@ const RendezVousV6 = () => {
                 style={{...styles.btn, ...styles.btnPrimary}}
                 onClick={handleAddService}
               >
-                Ajouter
+                Enregistrer la prestation
               </button>
+              {(serviceName.trim() || newServiceMinPrice || newServiceMaxPrice) && (
+                <p style={{fontSize: '13px', color: '#c0392b', marginTop: '10px'}}>
+                  Prestation non enregistrée : cliquez sur « Enregistrer la prestation » pour qu'elle apparaisse sur le site.
+                </p>
+              )}
+              {serviceSavedMessage && <p style={styles.successText}>{serviceSavedMessage}</p>}
             </div>
 
             {/* Liste des prestations */}
@@ -1504,6 +2057,11 @@ const RendezVousV6 = () => {
                               ? `${service.minPrice}€`
                               : `${service.minPrice}€ - ${service.maxPrice}€`}
                           </p>
+                          {prestataire.approved ? (
+                            <span style={{...styles.badge, backgroundColor: '#e8f5e9', color: '#1e7e34'}}>✓ Enregistrée, visible sur le site</span>
+                          ) : (
+                            <span style={{...styles.badge, backgroundColor: '#fff3cd', color: '#856404'}}>Enregistrée, visible après validation du compte</span>
+                          )}
                         </div>
                         <div style={{display: 'flex', gap: '10px'}}>
                           <button
@@ -1739,8 +2297,9 @@ const RendezVousV6 = () => {
                   <p><strong>{res.clientFirstName} {res.clientName}</strong></p>
                   <p>📅 {res.date} à {res.time}</p>
                   <p>📧 {res.clientEmail} | ☎️ {res.clientPhone}</p>
+                  {renderReservationPrice(res)}
                   <p style={{marginTop: '10px'}}>
-                    Paiement: {res.paymentMethod === 'site' ? 'Sur le site (payé)' : 'Au prestataire (en attente)'}
+                    Paiement : {renderPaymentLabel(res)}
                   </p>
                 </div>
               ))
@@ -1749,12 +2308,336 @@ const RendezVousV6 = () => {
             )}
           </div>
         )}
+
+        {dashboardTab === 'promos' && renderPrestatairePromos(prestataire)}
       </div>
+    );
+  };
+
+  const promoStatusBadge = (promo) => {
+    if (promo.status === 'active') {
+      return <span style={{...styles.badge, backgroundColor: '#e8f5e9', color: '#1e7e34'}}>Actif</span>;
+    }
+    if (promo.status === 'pending') {
+      return <span style={{...styles.badge, backgroundColor: '#fff3cd', color: '#856404'}}>En attente d'activation par l'admin</span>;
+    }
+    return <span style={{...styles.badge, backgroundColor: '#f8d7da', color: '#721c24'}}>Désactivé par l'admin</span>;
+  };
+
+  const describePromoRules = (promo, services) => {
+    const rules = [];
+    if (promo.serviceIds && promo.serviceIds.length > 0) {
+      const names = promo.serviceIds
+        .map(id => (services || []).find(s => s.id === id)?.name)
+        .filter(Boolean);
+      rules.push(`Prestations : ${names.length > 0 ? names.join(', ') : 'supprimées'}`);
+    } else if (promo.kind === 'promo') {
+      rules.push('Toutes les prestations');
+    }
+    if (promo.startDate || promo.endDate) {
+      rules.push(`Valable ${promo.startDate ? `du ${promo.startDate} ` : ''}${promo.endDate ? `jusqu'au ${promo.endDate}` : ''}`.trim());
+    }
+    rules.push(`Utilisations : ${promo.usedCount || 0}${promo.maxUses ? ` / ${promo.maxUses}` : ''}`);
+    if (promo.onePerClient && promo.kind === 'promo') rules.push('1 fois par client (compte requis)');
+    return rules.join(' • ');
+  };
+
+  const renderPrestatairePromos = (prestataire) => {
+    const myPromos = promoCodes.filter(pc => pc.kind === 'promo' && pc.prestataireId === prestataire.id);
+    const updatePromoForm = (field, value) => setPromoForm(prev => ({ ...prev, [field]: value }));
+    const toggleService = (serviceId) => setPromoForm(prev => ({
+      ...prev,
+      serviceIds: prev.serviceIds.includes(serviceId)
+        ? prev.serviceIds.filter(id => id !== serviceId)
+        : [...prev.serviceIds, serviceId]
+    }));
+
+    return (
+      <div>
+        <h2>Codes promo</h2>
+        <p style={{fontSize: '13px', color: '#666', marginBottom: '15px'}}>
+          Vos clients saisissent le code au moment de réserver. Un nouveau code doit être activé par l'administrateur avant de pouvoir être utilisé.
+        </p>
+
+        <div style={{...styles.card, marginBottom: '30px'}}>
+          <h3>Créer un code</h3>
+          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+            <div style={{flex: 2, minWidth: '160px'}}>
+              <label>Code</label>
+              <input
+                type="text"
+                placeholder="Ex: BIENVENUE10"
+                value={promoForm.code}
+                onChange={(e) => updatePromoForm('code', e.target.value.toUpperCase())}
+                style={styles.input}
+              />
+            </div>
+            <div style={{flex: 1, minWidth: '120px'}}>
+              <label>Type</label>
+              <select value={promoForm.type} onChange={(e) => updatePromoForm('type', e.target.value)} style={styles.input}>
+                <option value="percent">Pourcentage (%)</option>
+                <option value="amount">Montant (€)</option>
+              </select>
+            </div>
+            <div style={{flex: 1, minWidth: '100px'}}>
+              <label>Réduction</label>
+              <input
+                type="number"
+                placeholder={promoForm.type === 'percent' ? '10' : '5'}
+                value={promoForm.value}
+                onChange={(e) => updatePromoForm('value', e.target.value)}
+                style={styles.input}
+              />
+            </div>
+          </div>
+
+          <label style={{display: 'block', marginBottom: '5px'}}>Prestations concernées (aucune cochée = toutes)</label>
+          <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '10px'}}>
+            {prestataire.services.length === 0 && <span style={{fontSize: '13px', color: '#666'}}>Aucune prestation enregistrée</span>}
+            {prestataire.services.map(service => (
+              <label key={service.id} style={{cursor: 'pointer'}}>
+                <input
+                  type="checkbox"
+                  checked={promoForm.serviceIds.includes(service.id)}
+                  onChange={() => toggleService(service.id)}
+                />
+                {' '}{service.name}
+              </label>
+            ))}
+          </div>
+
+          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+            <div style={{flex: 1, minWidth: '140px'}}>
+              <label>Début (facultatif)</label>
+              <input type="date" value={promoForm.startDate} onChange={(e) => updatePromoForm('startDate', e.target.value)} style={styles.input} />
+            </div>
+            <div style={{flex: 1, minWidth: '140px'}}>
+              <label>Fin (facultatif)</label>
+              <input type="date" value={promoForm.endDate} onChange={(e) => updatePromoForm('endDate', e.target.value)} style={styles.input} />
+            </div>
+            <div style={{flex: 1, minWidth: '140px'}}>
+              <label>Utilisations max (facultatif)</label>
+              <input
+                type="number"
+                placeholder="Illimité"
+                value={promoForm.maxUses}
+                onChange={(e) => updatePromoForm('maxUses', e.target.value)}
+                style={styles.input}
+              />
+            </div>
+          </div>
+
+          <label style={{display: 'block', marginBottom: '15px', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={promoForm.onePerClient}
+              onChange={(e) => updatePromoForm('onePerClient', e.target.checked)}
+            />
+            {' '}Une seule utilisation par client (le client doit être connecté)
+          </label>
+
+          <button style={{...styles.btn, ...styles.btnPrimary}} onClick={handleCreatePromo}>
+            Enregistrer le code
+          </button>
+        </div>
+
+        <h3>Vos codes ({myPromos.length})</h3>
+        {myPromos.length === 0 && <p style={{fontStyle: 'italic', color: '#666'}}>Aucun code pour le moment</p>}
+        {myPromos.map(promo => (
+          <div key={promo.id} style={{...styles.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap'}}>
+            <div>
+              <h4 style={{margin: '0 0 5px'}}>{promo.code} <span style={{fontWeight: 'normal'}}>({describeDiscount(promo)})</span></h4>
+              <p style={{fontSize: '13px', margin: '0 0 5px'}}>{describePromoRules(promo, prestataire.services)}</p>
+              {promoStatusBadge(promo)}
+            </div>
+            <button style={{...styles.btn, ...styles.btnDanger}} onClick={() => handleDeletePromo(promo.id)}>
+              Supprimer
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderAdminAccountForm = () => {
+    if (!adminForm) return null;
+    const { type, id, values } = adminForm;
+    const isEdit = id != null;
+    const update = (field) => (e) => {
+      const { value } = e.target;
+      setAdminForm(prev => ({ ...prev, values: { ...prev.values, [field]: value } }));
+    };
+    const fields = type === 'prestataire'
+      ? [
+          { name: 'name', label: 'Nom du salon', type: 'text' },
+          { name: 'category', label: 'Catégorie', type: 'select', options: ['Beauté', 'Artisans'] },
+          { name: 'city', label: 'Ville', type: 'text' },
+          { name: 'email', label: 'Email', type: 'email' }
+        ]
+      : [
+          { name: 'lastName', label: 'Nom', type: 'text' },
+          { name: 'firstName', label: 'Prénom', type: 'text' },
+          { name: 'email', label: 'Email', type: 'email' },
+          { name: 'phone', label: 'Téléphone', type: 'tel' }
+        ];
+
+    return (
+      <div style={{...styles.card, backgroundColor: '#fff8e1', marginBottom: '25px'}}>
+        <h3>
+          {isEdit ? 'Modifier' : 'Ajouter'} {type === 'prestataire' ? 'un prestataire' : 'un client'}
+        </h3>
+        <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '0 15px'}}>
+          {fields.map(field => (
+            <div key={field.name}>
+              <label>{field.label}</label>
+              {field.type === 'select' ? (
+                <select value={values[field.name]} onChange={update(field.name)} style={styles.input}>
+                  {field.options.map(option => <option key={option}>{option}</option>)}
+                </select>
+              ) : (
+                <input type={field.type} value={values[field.name]} onChange={update(field.name)} style={styles.input} />
+              )}
+            </div>
+          ))}
+          <div>
+            <label>{isEdit ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe provisoire'}</label>
+            <input type="text" value={values.password} onChange={update('password')} placeholder="Minimum 6 caractères" style={styles.input} />
+          </div>
+        </div>
+        {!isEdit && type === 'prestataire' && (
+          <p style={{fontSize: '13px', color: '#666'}}>Le prestataire est directement approuvé et visible sur le site dès qu'il a enregistré ses prestations.</p>
+        )}
+        <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+          <button style={{...styles.btn, ...styles.btnPrimary}} onClick={handleSaveAdminForm}>
+            Enregistrer
+          </button>
+          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setAdminForm(null)}>
+            Annuler
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminPromos = () => {
+    const referral = referralDraft || settings.referral;
+    const editReferral = (updater) => setReferralDraft(prev => updater(prev || {
+      ...settings.referral,
+      refereeReward: { ...settings.referral.refereeReward },
+      sponsorReward: { ...settings.referral.sponsorReward }
+    }));
+    const rewardEditor = (key, label) => (
+      <div style={{flex: 1, minWidth: '220px'}}>
+        <label>{label}</label>
+        <div style={{display: 'flex', gap: '10px'}}>
+          <input
+            type="number"
+            value={referral[key].value}
+            onChange={(e) => {
+              const { value } = e.target;
+              editReferral(prev => ({ ...prev, [key]: { ...prev[key], value } }));
+            }}
+            style={{...styles.input, flex: 1}}
+          />
+          <select
+            value={referral[key].type}
+            onChange={(e) => {
+              const { value } = e.target;
+              editReferral(prev => ({ ...prev, [key]: { ...prev[key], type: value } }));
+            }}
+            style={{...styles.input, width: '90px'}}
+          >
+            <option value="percent">%</option>
+            <option value="amount">€</option>
+          </select>
+        </div>
+      </div>
+    );
+
+    const sortedPromos = [...promoCodes].sort((a, b) => {
+      const order = { pending: 0, active: 1, disabled: 2 };
+      return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+    });
+
+    return (
+      <>
+        <div style={{...styles.card, marginBottom: '30px'}}>
+          <h3>Programme de parrainage</h3>
+          <label style={{display: 'block', marginBottom: '15px', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={referral.enabled}
+              onChange={(e) => {
+                const { checked } = e.target;
+                editReferral(prev => ({ ...prev, enabled: checked }));
+              }}
+            />
+            {' '}<strong>Activer le parrainage</strong> (chaque client reçoit un code à partager)
+          </label>
+          <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
+            {rewardEditor('refereeReward', 'Réduction offerte au filleul (1re réservation)')}
+            {rewardEditor('sponsorReward', 'Réduction offerte au parrain (après la 1re réservation du filleul)')}
+          </div>
+          <p style={{fontSize: '13px', color: '#666'}}>
+            Ces réductions sont valables chez tous les prestataires et réglées sur place : elles sont à la charge de la plateforme.
+          </p>
+          {referralDraft && (
+            <div style={{display: 'flex', gap: '10px'}}>
+              <button style={{...styles.btn, ...styles.btnPrimary}} onClick={handleSaveReferralSettings}>
+                Enregistrer les réglages
+              </button>
+              <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setReferralDraft(null)}>
+                Annuler
+              </button>
+            </div>
+          )}
+        </div>
+
+        <h3>Codes ({promoCodes.length})</h3>
+        {sortedPromos.length === 0 && <p style={{fontStyle: 'italic', color: '#666'}}>Aucun code pour le moment</p>}
+        <div style={styles.grid}>
+          {sortedPromos.map(promo => {
+            const owner = promo.prestataireId != null
+              ? prestataires.find(p => p.id === promo.prestataireId)
+              : null;
+            const client = promo.clientId != null ? clients.find(c => c.id === promo.clientId) : null;
+            return (
+              <div key={promo.id} style={styles.card}>
+                <h4 style={{margin: '0 0 5px'}}>{promo.code} <span style={{fontWeight: 'normal'}}>({describeDiscount(promo)})</span></h4>
+                <p style={{fontSize: '13px', margin: '0 0 5px'}}>
+                  {promo.kind === 'parrainage'
+                    ? `Bon de parrainage pour ${client ? `${client.firstName} ${client.lastName}` : 'un client supprimé'}`
+                    : `Prestataire : ${owner ? owner.name : 'supprimé'}`}
+                </p>
+                <p style={{fontSize: '13px', margin: '0 0 8px'}}>{describePromoRules(promo, owner?.services)}</p>
+                {promoStatusBadge(promo)}
+                <div style={{display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap'}}>
+                  {promo.status !== 'active' && (
+                    <button style={{...styles.btn, ...styles.btnPrimary, flex: 1}} onClick={() => setPromoStatus(promo.id, 'active')}>
+                      Activer
+                    </button>
+                  )}
+                  {promo.status === 'active' && (
+                    <button style={{...styles.btn, ...styles.btnSecondary, flex: 1}} onClick={() => setPromoStatus(promo.id, 'disabled')}>
+                      Désactiver
+                    </button>
+                  )}
+                  <button style={{...styles.btn, ...styles.btnDanger, flex: 1}} onClick={() => handleDeletePromo(promo.id)}>
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </>
     );
   };
 
   const renderAdminPage = () => {
     if (!currentUser || currentUser.role !== 'admin') return null;
+
+    const pendingPromos = promoCodes.filter(pc => pc.status === 'pending').length;
 
     return (
       <div style={styles.container}>
@@ -1768,11 +2651,15 @@ const RendezVousV6 = () => {
         <h2>Panneau Administrateur</h2>
 
         <div style={{marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px'}}>
-          {[['prestataires', `Prestataires (${prestataires.length})`], ['clients', `Clients (${clients.length})`]].map(([tab, label]) => (
+          {[
+            ['prestataires', `Prestataires (${prestataires.length})`],
+            ['clients', `Clients (${clients.length})`],
+            ['promos', `Codes promo & parrainage${pendingPromos > 0 ? ` (${pendingPromos} à activer)` : ''}`]
+          ].map(([tab, label]) => (
             <button
               key={tab}
               style={{...styles.tab, ...(adminTab === tab ? styles.tabActive : {})}}
-              onClick={() => setAdminTab(tab)}
+              onClick={() => { setAdminTab(tab); setAdminForm(null); }}
             >
               {label}
             </button>
@@ -1781,6 +2668,11 @@ const RendezVousV6 = () => {
 
         {adminTab === 'prestataires' && (
           <>
+            {adminForm && adminForm.type === 'prestataire' ? renderAdminAccountForm() : (
+              <button style={{...styles.btn, ...styles.btnPrimary, marginBottom: '20px'}} onClick={() => openAdminForm('prestataire')}>
+                + Ajouter un prestataire
+              </button>
+            )}
             <div style={{marginBottom: '20px'}}>
               {['En attente', 'Approuvé', 'Tous'].map(label => (
                 <button
@@ -1822,6 +2714,12 @@ const RendezVousV6 = () => {
                         </button>
                       )}
                       <button
+                        style={{...styles.btn, ...styles.btnSecondary, flex: 1}}
+                        onClick={() => openAdminForm('prestataire', p)}
+                      >
+                        Modifier
+                      </button>
+                      <button
                         style={{...styles.btn, ...styles.btnWarning, flex: 1}}
                         onClick={() => {
                           setManagedPrestataireId(p.id);
@@ -1847,6 +2745,12 @@ const RendezVousV6 = () => {
           </>
         )}
 
+        {adminTab === 'clients' && (adminForm && adminForm.type === 'client' ? renderAdminAccountForm() : (
+          <button style={{...styles.btn, ...styles.btnPrimary, marginBottom: '20px'}} onClick={() => openAdminForm('client')}>
+            + Ajouter un client
+          </button>
+        ))}
+
         {adminTab === 'clients' && (
           clients.length > 0 ? (
             <div style={styles.grid}>
@@ -1861,6 +2765,13 @@ const RendezVousV6 = () => {
                     <p><strong>Email:</strong> {c.email}</p>
                     <p><strong>Téléphone:</strong> {c.phone}</p>
                     <p><strong>Réservations:</strong> {reservationsCount}</p>
+                    {settings.referral.enabled && <p><strong>Code parrainage:</strong> {c.referralCode}</p>}
+                    <button
+                      style={{...styles.btn, ...styles.btnSecondary, width: '100%', marginTop: '10px'}}
+                      onClick={() => openAdminForm('client', c)}
+                    >
+                      Modifier
+                    </button>
                     <button
                       style={{...styles.btn, ...styles.btnDanger, width: '100%', marginTop: '10px'}}
                       onClick={() => {
@@ -1878,24 +2789,35 @@ const RendezVousV6 = () => {
             <p>Aucun compte client pour le moment</p>
           )
         )}
+
+        {adminTab === 'promos' && renderAdminPromos()}
       </div>
     );
   };
 
   // Routing
-  switch (page) {
-    case 'home': return renderHomePage();
-    case 'login-client': return renderLoginPage('client');
-    case 'login-prestataire': return renderLoginPage('prestataire');
-    case 'register-prestataire': return renderRegisterPage();
-    case 'register-client': return renderClientRegisterPage();
-    case 'client-reservations': return renderClientReservationsPage() || renderHomePage();
-    case 'prestataire-detail': return renderPrestataireDetailPage() || renderHomePage();
-    case 'reservation': return renderReservationPage() || renderHomePage();
-    case 'dashboard': return renderDashboardPage() || renderHomePage();
-    case 'admin': return renderAdminPage() || renderHomePage();
-    default: return renderHomePage();
-  }
+  const renderPage = () => {
+    switch (page) {
+      case 'home': return renderHomePage();
+      case 'login-client': return renderLoginPage('client');
+      case 'login-prestataire': return renderLoginPage('prestataire');
+      case 'register-prestataire': return renderRegisterPage();
+      case 'register-client': return renderClientRegisterPage();
+      case 'client-reservations': return renderClientReservationsPage() || renderHomePage();
+      case 'prestataire-detail': return renderPrestataireDetailPage() || renderHomePage();
+      case 'reservation': return renderReservationPage() || renderHomePage();
+      case 'dashboard': return renderDashboardPage() || renderHomePage();
+      case 'admin': return renderAdminPage() || renderHomePage();
+      default: return renderHomePage();
+    }
+  };
+
+  return (
+    <div className="rv-app">
+      <style>{GLOBAL_CSS}</style>
+      {renderPage()}
+    </div>
+  );
 };
 
 export default RendezVousV6;
