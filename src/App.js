@@ -396,7 +396,7 @@ const RendezVousV6 = () => {
     city: '',
     email: '',
     password: '',
-    category: 'Beauté'
+    category: '' // choisie obligatoirement à l'inscription
   });
 
   // Login form state
@@ -1584,6 +1584,10 @@ const RendezVousV6 = () => {
     const handleSubmit = (e) => {
       e.preventDefault();
       const { name, email, password, city } = registrationData;
+      if (!registrationData.category) {
+        notify('Choisissez votre catégorie : Beauté ou Artisans');
+        return;
+      }
       if (!name.trim() || !email.trim() || !password || !city.trim()) {
         notify('Remplissez tous les champs');
         return;
@@ -1593,7 +1597,7 @@ const RendezVousV6 = () => {
         return;
       }
       if (handleRegisterPrestataire({ ...registrationData, name: name.trim(), city: city.trim() })) {
-        setRegistrationData({ name: '', city: '', email: '', password: '', category: 'Beauté' });
+        setRegistrationData({ name: '', city: '', email: '', password: '', category: '' });
       }
     };
 
@@ -1620,16 +1624,38 @@ const RendezVousV6 = () => {
               />
             </div>
             <div style={{marginBottom: '10px'}}>
-              <label style={{...styles.label, display: 'block'}}>Catégorie</label>
-              <select
-                name="category"
-                value={registrationData.category}
-                onChange={handleChange}
-                style={styles.input}
-              >
-                <option>Beauté</option>
-                <option>Artisans</option>
-              </select>
+              <label style={{...styles.label, display: 'block', marginBottom: '6px'}}>Votre activité</label>
+              <div role="radiogroup" aria-label="Votre activité" style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                {[
+                  { value: 'Beauté', icon: '💇', hint: 'Coiffure, esthétique…' },
+                  { value: 'Artisans', icon: '🔨', hint: 'Artisans, services…' }
+                ].map(option => {
+                  const selected = registrationData.category === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setRegistrationData(prev => ({ ...prev, category: option.value }))}
+                      style={{
+                        flex: 1,
+                        padding: '14px 10px',
+                        borderRadius: '16px',
+                        border: selected ? '2px solid #000' : '1px solid #cfcfcf',
+                        backgroundColor: selected ? '#000' : '#fff',
+                        color: selected ? '#fff' : '#000',
+                        cursor: 'pointer',
+                        textAlign: 'center'
+                      }}
+                    >
+                      <div style={{fontSize: '26px'}}>{option.icon}</div>
+                      <div style={{fontWeight: 800, fontSize: '16px'}}>{option.value}</div>
+                      <div style={{fontSize: '12px', opacity: 0.75}}>{option.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div style={{marginBottom: '10px'}}>
               <label style={{...styles.label, display: 'block'}}>Ville</label>
@@ -1924,7 +1950,10 @@ const RendezVousV6 = () => {
         <div style={styles.header}>
           <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
           <div style={styles.nav}>
-            <span><strong>{prestataire.name}</strong>{isAdmin ? ' (mode admin)' : ''}</span>
+            <span>
+              <strong>{prestataire.name}</strong>{isAdmin ? ' (mode admin)' : ''}
+              {' '}<span style={{...styles.badge, backgroundColor: '#f0f0f0', color: '#000'}}>{prestataire.category}</span>
+            </span>
             {isAdmin && (
               <button
                 style={{...styles.btn, ...styles.btnPrimary}}
