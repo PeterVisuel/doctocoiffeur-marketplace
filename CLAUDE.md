@@ -21,8 +21,12 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   rappel envoyé 24 h avant un rendez-vous. Variables d'environnement Vercel : `RESEND_API_KEY` et `REMINDER_FROM`
   (expéditeur sur un domaine vérifié chez Resend). Sans elles, la fonction répond 501 et le site fonctionne sans e-mail
   (en local avec `npm start` / `serve`, `/api` n'existe pas : même comportement).
-- Le logo est une image JPEG en base64 (`LOGO_BASE64`, ligne 3, très longue) ; utiliser `LOGO_SRC`.
-  Ne pas lire `src/App.js` d'un seul bloc : la ligne 3 fait ~105 ko.
+- Le logo est le fichier `public/logo-rendez-vous.jpg` ; dans le code, utiliser `LOGO_SRC`.
+- **Application installable (PWA)** : `public/manifest.json`, icônes générées depuis le logo (`icon-192.png`,
+  `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`, `favicon.ico`) et `public/service-worker.js`
+  (enregistré dans `src/index.js`, en production seulement). Le service worker sert les pages en réseau d'abord et les
+  fichiers statiques depuis le cache ; il ne met jamais `/api/` en cache. Après une modification du service worker,
+  incrémenter `CACHE_VERSION`.
 
 ## Règles à respecter (bugs déjà rencontrés)
 
@@ -76,6 +80,10 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   via Resend (`api/reminders.js`), annulé ou reprogrammé quand le client annule ou déplace.
 - **Modifier / annuler** : le client peut déplacer ou annuler **jusqu'à 24 h avant** (`CHANGE_DEADLINE_HOURS`) ;
   ensuite il doit contacter le prestataire. Une annulation libère le créneau et rend le code promo utilisé.
+- **Application installable** : icône = logo Rendez Vous sur fond blanc. Sur l'accueil, simple lien discret
+  « 📲 Installer l'application Rendez Vous » sous le pied de page (pas un troisième bouton à côté des deux connexions),
+  visible seulement si l'installation est possible : invite du navigateur sur Android / ordinateur, fenêtre
+  d'explication sur iPhone (Partager › Sur l'écran d'accueil), masqué une fois l'application installée.
 
 ## Historique
 
@@ -87,15 +95,18 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #4 : ajout de ce fichier.
 - PR #5 : recherche par prestation, e-mail inconnu à la connexion, nouveaux textes, Mes réservations enrichi,
   suggestions « Pour vous », rappels 24 h avant (agenda + e-mail Resend), modification / annulation jusqu'à 24 h avant.
+- PR #6 : application installable (PWA) avec le logo, fonctionnement hors connexion, logo sorti du code.
 
 ## Prochaines étapes envisagées
 
 1. **Base de données partagée** (ex. Supabase) : aujourd'hui les réservations, comptes et codes ne sont pas partagés
    entre appareils et ne sont vérifiés que dans le navigateur. Prérequis à toute mise en service réelle.
 2. Authentification côté serveur (les mots de passe, y compris admin, sont aujourd'hui en clair dans le navigateur / le code).
-3. Paiement en ligne (Stripe), puis éventuellement Stripe Connect pour reverser aux prestataires.
-4. Durée par prestation, e-mail de confirmation à la réservation, rappels SMS.
-5. Protéger `api/reminders.js` contre les abus (limitation de débit, vérification de la réservation côté serveur) :
+3. Applications App Store / Google Play avec Capacitor (même code React), notifications push pour les rappels,
+   suppression de compte dans l'application et politique de confidentialité (exigés par Apple / Google) ; après 1 et 2.
+4. Paiement en ligne (Stripe), puis éventuellement Stripe Connect pour reverser aux prestataires.
+5. Durée par prestation, e-mail de confirmation à la réservation, rappels SMS.
+6. Protéger `api/reminders.js` contre les abus (limitation de débit, vérification de la réservation côté serveur) :
    possible seulement avec la base de données.
 
 ## Vérifier une modification
@@ -111,4 +122,4 @@ npx eslint --no-eslintrc --parser-options=ecmaVersion:2022,sourceType:module,ecm
   `DISABLE_ESLINT_PLUGIN=true` et le lint lancé séparément.
 - `src/App.test.js` est le test par défaut de CRA (« learn react ») et ne teste pas l'application.
 - Tester les parcours dans un vrai navigateur (Playwright) : saisie sans perte de curseur, réservation, codes promo,
-  admin. Comptes de démonstration : prestataire `elegance@salon.fr` / `pass123`, admin `admin123` / `admin123`.
+  admin, installabilité (CDP `Page.getInstallabilityErrors`) et mode hors connexion. Comptes de démonstration : prestataire `elegance@salon.fr` / `pass123`, admin `admin123` / `admin123`.
