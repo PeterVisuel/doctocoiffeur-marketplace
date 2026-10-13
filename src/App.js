@@ -167,9 +167,100 @@ const dayKeyFromDate = (dateStr) => {
   return DAYS[(index + 6) % 7].key;
 };
 
-const todayString = () => {
+const toDateString = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const todayString = () => toDateString(new Date());
+
+const addDays = (dateStr, days) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return toDateString(new Date(y, m - 1, d + days));
+};
+
+// Date et heure locales d'un rendez-vous ("AAAA-MM-JJ" + "HH:MM")
+const appointmentDate = (date, time) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const minutes = toMinutes(time || '00:00');
+  return new Date(y, m - 1, d, Math.floor(minutes / 60), minutes % 60);
+};
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+// Délai minimum avant le rendez-vous pour que le client puisse le modifier ou l'annuler
+const CHANGE_DEADLINE_HOURS = 24;
+
+// "mardi 20 octobre"
+const formatDateLong = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+};
+
+// Comparaison sans accents ni majuscules ("Épilation" ~ "epilation")
+const normalizeText = (text) =>
+  String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+const isActiveReservation = (r) => r.status !== 'cancelled';
+
+// Fichier agenda (.ics) avec une alarme 24 h avant : le téléphone du client fait le rappel
+const buildIcs = (reservation, prestataire) => {
+  const start = appointmentDate(reservation.date, reservation.time);
+  const end = new Date(start.getTime() + HOUR_MS);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const utc = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+  const escape = (text) => String(text || '').replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Rendez Vous//Reservation//FR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${reservation.id}@rendez-vous`,
+    `DTSTAMP:${utc}`,
+    `DTSTART:${local(start)}`,
+    `DTEND:${local(end)}`,
+    `SUMMARY:${escape(`${reservation.serviceName} - ${prestataire.name}`)}`,
+    `LOCATION:${escape(`${prestataire.name}, ${prestataire.city}`)}`,
+    `DESCRIPTION:${escape(`Rendez-vous réservé sur Rendez Vous.\nContact du prestataire : ${prestataire.email || ''}`)}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${escape(`Rappel : ${reservation.serviceName} demain chez ${prestataire.name}`)}`,
+    'TRIGGER:-PT24H',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+};
+
+const downloadIcs = (reservation, prestataire) => {
+  const blob = new Blob([buildIcs(reservation, prestataire)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `rendez-vous-${reservation.date}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// Rappel par e-mail 24 h avant : fonction serveur Vercel (api/reminders.js) qui programme
+// l'envoi chez Resend. Si elle n'est pas configurée (ou en local), le site continue sans e-mail.
+const callReminderApi = async (body) => {
+  try {
+    const response = await fetch('/api/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (e) {
+    return null;
+  }
 };
 
 // Heures de rendez-vous proposées (toutes les heures) pour une date donnée
@@ -349,6 +440,14 @@ const RendezVousV6 = () => {
   const [promoCodes, setPromoCodes] = useState(loadPromoCodes);
   const [settings, setSettings] = useState(loadSettings);
   const [searchResults, setSearchResults] = useState([]);
+  // Dernière recherche lancée (pour « Aucun résultat » et la mise en avant des prestations)
+  const [lastSearch, setLastSearch] = useState(null);
+  // E-mail inconnu à la connexion client : affiche la fenêtre « Adresse e-mail inconnue »
+  const [unknownEmail, setUnknownEmail] = useState(null);
+  // Réservation qui vient d'être confirmée (page de confirmation)
+  const [lastConfirmation, setLastConfirmation] = useState(null);
+  // Réservation en cours de modification par le client : { id, prestataireId, date, time }
+  const [editingReservation, setEditingReservation] = useState(null);
   const [selectedPrestataire, setSelectedPrestataire] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [adminFilter, setAdminFilter] = useState('Tous');
@@ -943,21 +1042,22 @@ const RendezVousV6 = () => {
       const prestataire = prestataires.find(
         p => (p.email || '').toLowerCase() === normalizedEmail && p.password === password
       );
-      if (prestataire && prestataire.emailVerified) {
+      if (prestataire && !prestataire.emailVerified) return { error: 'pending' };
+      if (prestataire) {
         setCurrentUser({ id: prestataire.id, role: 'prestataire' });
         setDashboardTab('services');
         setPage('dashboard');
-        return true;
+        return { ok: true };
       }
     } else if (role === 'client') {
-      const client = clients.find(c => c.email === normalizedEmail && c.password === password);
-      if (client) {
-        setCurrentUser({ id: client.id, role: 'client' });
-        setPage('home');
-        return true;
-      }
+      const client = clients.find(c => c.email === normalizedEmail);
+      if (!client) return { error: 'unknown-email' };
+      if (client.password !== password) return { error: 'wrong-password' };
+      setCurrentUser({ id: client.id, role: 'client' });
+      setPage('home');
+      return { ok: true };
     }
-    return false;
+    return { error: 'invalid' };
   };
 
   const handleLogout = () => {
@@ -965,6 +1065,8 @@ const RendezVousV6 = () => {
     setManagedPrestataireId(null);
     setPage('home');
     setLoginForm({ email: '', password: '' });
+    setEditingReservation(null);
+    setLastConfirmation(null);
     setEditingServiceId(null);
     setEditingSchedule(false);
     setSelectedServiceForPhotos(null);
@@ -981,17 +1083,29 @@ const RendezVousV6 = () => {
     });
   };
 
+  const serviceMatches = (service, query) => normalizeText(service.name).includes(query);
+
   const handleSearch = () => {
     let results = prestataires.filter(p => p.approved && p.emailVerified && p.category === selectedCategory);
-    
-    if (searchValue.trim()) {
+    const query = normalizeText(searchValue);
+
+    if (query) {
       if (searchType === 'ville') {
-        results = results.filter(p => p.city.toLowerCase().includes(searchValue.toLowerCase()));
+        results = results.filter(p => normalizeText(p.city).includes(query));
       } else if (searchType === 'nom') {
-        results = results.filter(p => p.name.toLowerCase().includes(searchValue.toLowerCase()));
+        results = results.filter(p => normalizeText(p.name).includes(query));
+      } else if (searchType === 'prestation') {
+        results = results.filter(p => (p.services || []).some(s => serviceMatches(s, query)));
       }
     }
     setSearchResults(results);
+    setLastSearch({ type: searchType, query });
+  };
+
+  const resetSearch = () => {
+    setSearchValue('');
+    setSearchResults([]);
+    setLastSearch(null);
   };
 
   const checkAvailability = (prestaireId, date, time) => {
@@ -1006,26 +1120,241 @@ const RendezVousV6 = () => {
     return !isSlotBooked(prestataire, date, time);
   };
 
-  const isSlotBooked = (prestataire, date, time) =>
+  // excludeId : la réservation en cours de modification ne bloque pas son propre créneau
+  const isSlotBooked = (prestataire, date, time, excludeId = null) =>
     (prestataire.reservations || []).some(
-      r => r.date === date && normalizeTime(r.time) === normalizeTime(time)
+      r => isActiveReservation(r) && r.id !== excludeId &&
+        r.date === date && normalizeTime(r.time) === normalizeTime(time)
     );
 
   // Pré-remplit le formulaire de réservation avec les infos du client connecté
-  const startReservation = (service) => {
+  const startReservation = (service, preset = null) => {
     setSelectedService(service);
     setPromoInput('');
     setAppliedPromoCode('');
-    if (currentClient) {
-      setReservationData(prev => ({
-        ...prev,
+    setReservationData(prev => ({
+      ...prev,
+      ...(currentClient ? {
         clientName: prev.clientName || currentClient.lastName,
         clientFirstName: prev.clientFirstName || currentClient.firstName,
         clientEmail: prev.clientEmail || currentClient.email,
         clientPhone: prev.clientPhone || currentClient.phone
-      }));
-    }
+      } : {}),
+      selectedDate: preset ? preset.date : prev.selectedDate,
+      selectedTime: preset ? preset.time : prev.selectedTime
+    }));
     setPage('reservation');
+  };
+
+  // Reprendre rendez-vous chez un prestataire, éventuellement sur un créneau précis
+  const rebook = (prestataire, service, preset = null) => {
+    setSelectedPrestataire(prestataire);
+    startReservation(service, preset);
+  };
+
+  // ----- Rappels par e-mail (fonction serveur, voir api/reminders.js) -----
+  const updateReservation = (prestataireId, reservationId, fields) => {
+    setPrestataires(prev => prev.map(p => (p.id === prestataireId
+      ? { ...p, reservations: (p.reservations || []).map(r => (r.id === reservationId ? { ...r, ...fields } : r)) }
+      : p)));
+  };
+
+  // Programme l'e-mail de rappel 24 h avant ; renvoie true si l'e-mail est programmé
+  const scheduleReminderEmail = async (reservation, prestataire) => {
+    const remindAt = appointmentDate(reservation.date, reservation.time).getTime() - DAY_MS;
+    if (!reservation.clientEmail || remindAt <= Date.now() + 5 * 60 * 1000) return false;
+    const result = await callReminderApi({
+      action: 'schedule',
+      to: reservation.clientEmail,
+      firstName: reservation.clientFirstName,
+      prestataireName: prestataire.name,
+      prestataireCity: prestataire.city,
+      serviceName: reservation.serviceName,
+      date: reservation.date,
+      time: normalizeTime(reservation.time),
+      dateLabel: formatDateLong(reservation.date),
+      remindAt: new Date(remindAt).toISOString()
+    });
+    if (result && result.id) {
+      updateReservation(prestataire.id, reservation.id, { reminderEmailId: result.id });
+      return true;
+    }
+    return false;
+  };
+
+  const cancelReminderEmail = (reservation) => {
+    if (reservation.reminderEmailId) callReminderApi({ action: 'cancel', id: reservation.reminderEmailId });
+  };
+
+  // ----- Modification / annulation par le client -----
+  const canClientChange = (reservation) =>
+    appointmentDate(reservation.date, reservation.time).getTime() - Date.now() > CHANGE_DEADLINE_HOURS * HOUR_MS;
+
+  const releasePromo = (reservation) => {
+    if (!reservation.promo) return;
+    const code = normalizeCode(reservation.promo.code);
+    setPromoCodes(prev => prev.map(pc => {
+      if (normalizeCode(pc.code) !== code) return pc;
+      const usedBy = [...(pc.usedBy || [])];
+      const index = usedBy.indexOf(reservation.clientId);
+      if (index !== -1) usedBy.splice(index, 1);
+      return { ...pc, usedCount: Math.max(0, (pc.usedCount || 0) - 1), usedBy };
+    }));
+  };
+
+  const handleCancelReservation = (prestataire, reservation) => {
+    if (!canClientChange(reservation)) {
+      notify(`Moins de ${CHANGE_DEADLINE_HOURS} h avant votre rendez-vous : contactez directement le prestataire.`);
+      return;
+    }
+    askConfirm(
+      `Annuler votre rendez-vous « ${reservation.serviceName} » du ${formatDateLong(reservation.date)} à ${normalizeTime(reservation.time)} ?`,
+      () => {
+        updateReservation(prestataire.id, reservation.id, {
+          status: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          cancelledBy: 'client',
+          reminderEmailId: null
+        });
+        releasePromo(reservation);
+        cancelReminderEmail(reservation);
+        setEditingReservation(null);
+        notify('Rendez-vous annulé. Le créneau est libéré.');
+      }
+    );
+  };
+
+  const handleSaveReservationChange = async () => {
+    if (!editingReservation) return;
+    const prestataire = prestataires.find(p => p.id === editingReservation.prestataireId);
+    const reservation = prestataire && prestataire.reservations.find(r => r.id === editingReservation.id);
+    if (!reservation) return;
+    if (!canClientChange(reservation)) {
+      notify(`Moins de ${CHANGE_DEADLINE_HOURS} h avant votre rendez-vous : contactez directement le prestataire.`);
+      return;
+    }
+    const { date, time } = editingReservation;
+    if (!date || !time) {
+      notify('Choisissez une nouvelle date et une heure');
+      return;
+    }
+    if (date === reservation.date && normalizeTime(time) === normalizeTime(reservation.time)) {
+      setEditingReservation(null);
+      return;
+    }
+    if (appointmentDate(date, time).getTime() <= Date.now()
+      || !getTimeOptions(prestataire.schedule, date).includes(normalizeTime(time))
+      || isSlotBooked(prestataire, date, time, reservation.id)) {
+      notify("Ce créneau n'est pas disponible");
+      return;
+    }
+    updateReservation(prestataire.id, reservation.id, {
+      date,
+      time,
+      modifiedAt: new Date().toISOString(),
+      previousSlot: { date: reservation.date, time: reservation.time },
+      reminderEmailId: null
+    });
+    cancelReminderEmail(reservation);
+    setEditingReservation(null);
+    notify(`Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`);
+    scheduleReminderEmail({ ...reservation, date, time }, prestataire);
+  };
+
+  // ----- Suggestions selon les habitudes du client -----
+  const getClientReservations = (clientId) => prestataires
+    .flatMap(p => (p.reservations || [])
+      .filter(r => r.clientId === clientId)
+      .map(r => ({ ...r, prestataire: p, at: appointmentDate(r.date, r.time).getTime() })));
+
+  const getSuggestions = (client) => {
+    const now = Date.now();
+    const active = getClientReservations(client.id).filter(isActiveReservation);
+    const past = active.filter(r => r.at < now).sort((a, b) => b.at - a.at);
+    const upcoming = active.filter(r => r.at >= now);
+    const bookable = (r) => {
+      const prestataire = prestataires.find(p => p.id === r.prestataire.id);
+      const service = prestataire && prestataire.approved && prestataire.services.find(s => s.id === r.serviceId);
+      return service ? { prestataire, service } : null;
+    };
+    const suggestions = [];
+
+    // A. Renouveler le dernier rendez-vous
+    const last = past[0];
+    const lastTarget = last && bookable(last);
+    if (lastTarget && !upcoming.some(r => r.prestataire.id === last.prestataire.id && r.serviceId === last.serviceId)) {
+      suggestions.push({
+        key: 'renew',
+        icon: '🔁',
+        text: `Votre dernier rendez-vous « ${last.serviceName} » chez ${last.prestataire.name} remonte au ${formatDateLong(last.date)}. On le renouvelle ?`,
+        actionLabel: 'Réserver à nouveau',
+        action: () => rebook(lastTarget.prestataire, lastTarget.service)
+      });
+    }
+
+    // B. Créneau habituel : même jour de la semaine et même heure au moins 2 fois
+    const habits = {};
+    active.forEach(r => {
+      const key = `${dayKeyFromDate(r.date)}|${normalizeTime(r.time)}`;
+      habits[key] = habits[key] || [];
+      habits[key].push(r);
+    });
+    const habit = Object.values(habits)
+      .filter(group => group.length >= 2)
+      .sort((a, b) => b.length - a.length)[0];
+    if (habit) {
+      const reference = [...habit].sort((a, b) => b.at - a.at)[0];
+      const target = bookable(reference);
+      if (target) {
+        const time = normalizeTime(reference.time);
+        const dayKey = dayKeyFromDate(reference.date);
+        let slot = null;
+        for (let i = 0; i <= 56 && !slot; i++) {
+          const date = addDays(todayString(), i);
+          if (dayKeyFromDate(date) !== dayKey) continue;
+          if (appointmentDate(date, time).getTime() <= now + HOUR_MS) continue;
+          if (getTimeOptions(target.prestataire.schedule, date).includes(time)
+            && !isSlotBooked(target.prestataire, date, time)
+            && !upcoming.some(r => r.date === date)) {
+            slot = { date, time };
+          }
+        }
+        if (slot) {
+          const dayLabel = DAYS.find(d => d.key === dayKey).label.toLowerCase();
+          suggestions.push({
+            key: 'habit',
+            icon: '🗓️',
+            text: `Vous réservez souvent le ${dayLabel} vers ${parseInt(time, 10)} h. Prochain créneau libre chez ${target.prestataire.name} : ${formatDateLong(slot.date)} à ${slot.time}.`,
+            actionLabel: 'Réserver ce créneau',
+            action: () => rebook(target.prestataire, target.service, slot)
+          });
+        }
+      }
+    }
+
+    // C. Rythme habituel : intervalle moyen entre les rendez-vous passés
+    if (past.length >= 2 && upcoming.length === 0 && lastTarget) {
+      const chronological = [...past].sort((a, b) => a.at - b.at);
+      const gaps = chronological.slice(1).map((r, i) => (r.at - chronological[i].at) / DAY_MS);
+      const average = gaps.reduce((sum, g) => sum + g, 0) / gaps.length;
+      if (average >= 7 && average <= 180) {
+        const daysUntilDue = (last.at + average * DAY_MS - now) / DAY_MS;
+        if (daysUntilDue <= 10) {
+          const weeks = Math.max(1, Math.round(average / 7));
+          const rhythm = weeks === 1 ? 'chaque semaine' : `environ toutes les ${weeks} semaines`;
+          suggestions.push({
+            key: 'rhythm',
+            icon: '⏳',
+            text: daysUntilDue > 0
+              ? `Vous venez ${rhythm} : c'est bientôt le moment !`
+              : `Vous venez ${rhythm} : c'est le moment de reprendre rendez-vous !`,
+            actionLabel: 'Prendre rendez-vous',
+            action: () => rebook(lastTarget.prestataire, lastTarget.service)
+          });
+        }
+      }
+    }
+    return suggestions;
   };
 
   // Paiement en ligne (Stripe) pas encore développé : le client règle sur place
@@ -1102,8 +1431,15 @@ const RendezVousV6 = () => {
       setClients(prev => prev.map(c => (c.id === currentClient.id ? { ...c, sponsorRewarded: true } : c)));
     }
 
-    notify('Réservation confirmée !');
-    setPage('home');
+    const prestataireForReminder = prestataires.find(p => p.id === selectedPrestataire.id) || selectedPrestataire;
+    const confirmationId = reservation.id;
+    setLastConfirmation({ reservation, prestataire: prestataireForReminder, reminder: 'pending' });
+    setPage('reservation-confirmed');
+    scheduleReminderEmail(reservation, prestataireForReminder).then(scheduled => {
+      setLastConfirmation(prev => (prev && prev.reservation.id === confirmationId
+        ? { ...prev, reminder: scheduled ? 'scheduled' : 'unavailable' }
+        : prev));
+    });
     setPromoInput('');
     setAppliedPromoCode('');
     setReservationData({
@@ -1215,6 +1551,137 @@ const RendezVousV6 = () => {
   // (renderXxx()), et non des composants (<Xxx />). Déclarer un composant à
   // l'intérieur d'un autre le recrée à chaque rendu : React démonte alors toute
   // la page à chaque frappe et les champs de saisie perdent le curseur.
+  // Barre de recherche, réutilisée sur l'accueil (fond noir) et dans « Mes réservations »
+  const renderSearchBar = (variant) => {
+    const placeholders = {
+      ville: 'Entrez une ville...',
+      nom: 'Entrez un nom...',
+      prestation: 'Entrez une prestation (ex : coloration)...'
+    };
+    return (
+      <div style={{...styles.searchContainer, maxWidth: '800px', margin: variant === 'dark' ? '0 auto' : '0 0 20px'}}>
+        <select
+          value={searchType}
+          onChange={(e) => setSearchType(e.target.value)}
+          aria-label="Type de recherche"
+          style={{...styles.input, marginBottom: '0', width: isMobile ? '100%' : '170px'}}
+        >
+          <option value="ville">Par ville</option>
+          <option value="nom">Par nom</option>
+          <option value="prestation">Par prestation</option>
+        </select>
+        <input
+          type="text"
+          placeholder={placeholders[searchType]}
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+          style={{...styles.input, marginBottom: '0', flex: 1}}
+        />
+        <button
+          style={variant === 'dark'
+            ? {...styles.btn, backgroundColor: '#fff', color: '#000', borderColor: '#fff'}
+            : {...styles.btn, ...styles.btnPrimary}}
+          onClick={handleSearch}
+        >
+          🔍 Rechercher
+        </button>
+      </div>
+    );
+  };
+
+  const renderSearchResults = () => {
+    if (searchResults.length === 0) {
+      return lastSearch
+        ? <p style={{textAlign: 'center', marginTop: '20px'}}>Aucun résultat trouvé</p>
+        : null;
+    }
+    const highlight = lastSearch && lastSearch.type === 'prestation' && lastSearch.query;
+    return (
+      <div style={styles.grid}>
+        {searchResults.map(p => {
+          // Recherche par prestation : les prestations trouvées sont affichées en premier
+          const services = highlight
+            ? [...p.services].sort((a, b) => Number(serviceMatches(b, highlight)) - Number(serviceMatches(a, highlight)))
+            : p.services;
+          return (
+            <div key={p.id} className="rv-card-hover" style={styles.card}>
+              <h3>{p.name}</h3>
+              <p>📍 {p.city}</p>
+              <p style={{fontSize: '12px', color: '#666'}}>{p.category}</p>
+              <div style={{marginBottom: '10px'}}>
+                {services.map(s => {
+                  const matched = highlight && serviceMatches(s, highlight);
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        fontSize: '13px',
+                        marginBottom: '5px',
+                        ...(matched ? { backgroundColor: '#f0f0f0', borderRadius: '8px', padding: '4px 8px' } : {})
+                      }}
+                    >
+                      <strong>{matched ? '✓ ' : ''}{s.name}</strong><br/>
+                      {s.minPrice === s.maxPrice ? `${s.minPrice}€` : `${s.minPrice}€ - ${s.maxPrice}€`}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}
+                onClick={() => {
+                  setSelectedPrestataire(p);
+                  setPage('prestataire-detail');
+                }}
+              >
+                Détails & Réserver
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Rappel sur le site : rendez-vous du client dans les prochaines 24 h
+  const renderClientReminderBanner = () => {
+    const now = Date.now();
+    const soon = getClientReservations(currentClient.id)
+      .filter(r => isActiveReservation(r) && r.at > now && r.at - now <= DAY_MS)
+      .sort((a, b) => a.at - b.at);
+    if (soon.length === 0) return null;
+    return (
+      <div style={{...styles.card, backgroundColor: '#000', color: '#fff'}}>
+        {soon.map(r => (
+          <p key={r.id} style={{margin: 0}}>
+            ⏰ <strong>Rappel :</strong> vous avez rendez-vous {r.date === todayString() ? "aujourd'hui" : 'demain'} à {normalizeTime(r.time)} chez {r.prestataire.name} ({r.serviceName}).
+          </p>
+        ))}
+      </div>
+    );
+  };
+
+  const renderSuggestions = () => {
+    const suggestions = getSuggestions(currentClient);
+    if (suggestions.length === 0) return null;
+    return (
+      <div style={{...styles.card, backgroundColor: '#fafafa'}}>
+        <h3>Pour vous</h3>
+        {suggestions.map(suggestion => (
+          <div
+            key={suggestion.key}
+            style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid #eee'}}
+          >
+            <span style={{flex: 1, minWidth: '200px'}}>{suggestion.icon} {suggestion.text}</span>
+            <button style={{...styles.btn, ...styles.btnPrimary}} onClick={suggestion.action}>
+              {suggestion.actionLabel}
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderHomePage = () => (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -1231,8 +1698,7 @@ const RendezVousV6 = () => {
               }}
               onClick={() => {
                 setSelectedCategory(cat);
-                setSearchValue('');
-                setSearchResults([]);
+                resetSearch();
               }}
             >
               {cat}
@@ -1255,6 +1721,9 @@ const RendezVousV6 = () => {
         </div>
       )}
 
+      {currentClient && renderClientReminderBanner()}
+      {currentClient && renderSuggestions()}
+
       {/* Bandeau d'accueil + recherche */}
       <div style={{
         backgroundColor: '#000',
@@ -1265,67 +1734,15 @@ const RendezVousV6 = () => {
         textAlign: 'center'
       }}>
         <h1 style={{fontSize: isMobile ? '24px' : '36px', marginBottom: '8px'}}>
-          Votre prochain rendez-vous, en quelques clics ✨
+          Trouvez votre prochain rendez-vous, peu importe le domaine{'\u00a0'}: c'est ici{'\u00a0'}! ✨
         </h1>
         <p style={{color: '#ccc', fontSize: '16px', marginBottom: isMobile ? '18px' : '28px'}}>
           La plateforme qui simplifie les réservations des professionnels
         </p>
-      <div style={{...styles.searchContainer, maxWidth: '800px', margin: '0 auto'}}>
-        <select
-          value={searchType}
-          onChange={(e) => setSearchType(e.target.value)}
-          style={{...styles.input, marginBottom: '0', width: '150px'}}
-        >
-          <option value="ville">Par ville</option>
-          <option value="nom">Par nom</option>
-        </select>
-        <input
-          type="text"
-          placeholder={searchType === 'ville' ? 'Entrez une ville...' : 'Entrez un nom...'}
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          style={{...styles.input, marginBottom: '0', flex: 1}}
-        />
-        <button
-          style={{...styles.btn, backgroundColor: '#fff', color: '#000', borderColor: '#fff'}}
-          onClick={handleSearch}
-        >
-          🔍 Rechercher
-        </button>
-      </div>
+        {renderSearchBar('dark')}
       </div>
 
-      {/* Results */}
-      {searchResults.length > 0 ? (
-        <div style={styles.grid}>
-          {searchResults.map(p => (
-            <div key={p.id} className="rv-card-hover" style={styles.card}>
-              <h3>{p.name}</h3>
-              <p>📍 {p.city}</p>
-              <p style={{fontSize: '12px', color: '#666'}}>{p.category}</p>
-              <div style={{marginBottom: '10px'}}>
-                {p.services.map(s => (
-                  <div key={s.id} style={{fontSize: '13px', marginBottom: '5px'}}>
-                    <strong>{s.name}</strong><br/>
-                    {s.minPrice === s.maxPrice ? `${s.minPrice}€` : `${s.minPrice}€ - ${s.maxPrice}€`}
-                  </div>
-                ))}
-              </div>
-              <button
-                style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}
-                onClick={() => {
-                  setSelectedPrestataire(p);
-                  setPage('prestataire-detail');
-                }}
-              >
-                Détails & Réserver
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : searchValue && (
-        <p style={{textAlign: 'center', marginTop: '20px'}}>Aucun résultat trouvé</p>
-      )}
+      {renderSearchResults()}
 
       <div style={styles.footer}>
         <p style={{marginBottom: '15px', color: '#666'}}>Accès rapide</p>
@@ -1350,8 +1767,15 @@ const RendezVousV6 = () => {
   const renderLoginPage = (role) => {
     const handleSubmit = (e) => {
       e.preventDefault();
-      if (handleLogin(loginForm.email, loginForm.password, role)) {
+      const result = handleLogin(loginForm.email, loginForm.password, role);
+      if (result.ok) {
         setLoginForm({ email: '', password: '' });
+      } else if (result.error === 'unknown-email') {
+        setUnknownEmail(loginForm.email.trim());
+      } else if (result.error === 'wrong-password') {
+        notify('Mot de passe incorrect. Vérifiez-le et réessayez.');
+      } else if (result.error === 'pending') {
+        notify("Votre compte est en attente de validation par l'administrateur.");
       } else {
         notify('Identifiants invalides');
       }
@@ -1366,9 +1790,18 @@ const RendezVousV6 = () => {
           </button>
         </div>
         <div style={{maxWidth: '400px', margin: '60px auto'}}>
+          {role === 'prestataire' && (
+            <div style={{...styles.card, backgroundColor: '#000', color: '#fff', marginBottom: '25px'}}>
+              <h3 style={{color: '#fff'}}>Vous souhaitez élargir votre activité ?</h3>
+              <p style={{color: '#ddd', margin: 0}}>
+                « Rendez Vous » est la plateforme faite pour vous. Centralisez vos rendez-vous et vos rappels en un seul lieu.
+              </p>
+            </div>
+          )}
           <h2>Connexion {role === 'prestataire' ? 'Prestataire' : 'Client'}</h2>
           <form onSubmit={handleSubmit}>
             <input
+              id="login-email"
               type="text"
               value={loginForm.email}
               onChange={(e) => {
@@ -1417,6 +1850,51 @@ const RendezVousV6 = () => {
             </div>
           )}
         </div>
+
+        {unknownEmail !== null && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unknown-email-title"
+            onClick={() => setUnknownEmail(null)}
+            style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, padding: '16px'}}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{...styles.card, maxWidth: '420px', width: '100%', marginBottom: 0, textAlign: 'center'}}
+            >
+              <h3 id="unknown-email-title">Adresse e-mail inconnue</h3>
+              <p>Aucun compte client n'est associé à l'adresse <strong>{unknownEmail}</strong>.</p>
+              <p style={{marginBottom: '20px'}}>Vérifiez l'orthographe de votre adresse ou créez votre compte en moins d'une minute.</p>
+              <div style={{display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap'}}>
+                <button
+                  autoFocus
+                  style={{...styles.btn, ...styles.btnPrimary}}
+                  onClick={() => {
+                    setClientRegistration({ ...EMPTY_CLIENT_REGISTRATION, email: unknownEmail });
+                    setUnknownEmail(null);
+                    setLoginForm({ email: '', password: '' });
+                    setPage('register-client');
+                  }}
+                >
+                  Créer mon compte
+                </button>
+                <button
+                  style={{...styles.btn, ...styles.btnSecondary}}
+                  onClick={() => {
+                    setUnknownEmail(null);
+                    setTimeout(() => {
+                      const input = document.getElementById('login-email');
+                      if (input) { input.focus(); input.select(); }
+                    }, 0);
+                  }}
+                >
+                  Corriger l'adresse
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1515,11 +1993,64 @@ const RendezVousV6 = () => {
       pc.clientId === currentClient.id && pc.status === 'active' && (pc.usedCount || 0) < (pc.maxUses || 1)
     );
 
-    const myReservations = prestataires
-      .flatMap(p => (p.reservations || [])
-        .filter(r => r.clientId === currentClient.id)
-        .map(r => ({ ...r, prestataireName: p.name, prestataireCity: p.city })))
-      .sort((a, b) => `${a.date} ${normalizeTime(a.time)}`.localeCompare(`${b.date} ${normalizeTime(b.time)}`));
+    const now = Date.now();
+    const myReservations = getClientReservations(currentClient.id);
+    const upcoming = myReservations.filter(r => isActiveReservation(r) && r.at >= now).sort((a, b) => a.at - b.at);
+    const past = myReservations.filter(r => isActiveReservation(r) && r.at < now).sort((a, b) => b.at - a.at);
+    const cancelled = myReservations.filter(r => !isActiveReservation(r)).sort((a, b) => b.at - a.at);
+
+    const findBookable = (r) => {
+      const prestataire = prestataires.find(p => p.id === r.prestataire.id);
+      const service = prestataire && prestataire.approved && prestataire.services.find(s => s.id === r.serviceId);
+      return service ? { prestataire, service } : null;
+    };
+
+    const renderEditor = (res) => {
+      const prestataire = res.prestataire;
+      const times = getTimeOptions(prestataire.schedule, editingReservation.date);
+      return (
+        <div style={{backgroundColor: '#f6f6f6', borderRadius: '12px', padding: '12px', marginTop: '10px'}}>
+          <p style={{fontWeight: 700}}>Choisissez un nouveau créneau</p>
+          <input
+            type="date"
+            min={todayString()}
+            value={editingReservation.date}
+            onChange={(e) => {
+              const { value } = e.target;
+              setEditingReservation(prev => ({ ...prev, date: value, time: '' }));
+            }}
+            style={styles.input}
+          />
+          <select
+            value={editingReservation.time}
+            onChange={(e) => {
+              const { value } = e.target;
+              setEditingReservation(prev => ({ ...prev, time: value }));
+            }}
+            style={styles.input}
+          >
+            <option value="">{times.length === 0 ? 'Fermé ce jour-là' : 'Choisir une heure'}</option>
+            {times.map(time => {
+              const unavailable = isSlotBooked(prestataire, editingReservation.date, time, res.id)
+                || appointmentDate(editingReservation.date, time).getTime() <= Date.now();
+              return (
+                <option key={time} value={time} disabled={unavailable}>
+                  {time}{unavailable ? ' (indisponible)' : ''}
+                </option>
+              );
+            })}
+          </select>
+          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+            <button style={{...styles.btn, ...styles.btnPrimary}} onClick={handleSaveReservationChange}>
+              Enregistrer le nouveau créneau
+            </button>
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setEditingReservation(null)}>
+              Annuler la modification
+            </button>
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={styles.container}>
@@ -1534,6 +2065,8 @@ const RendezVousV6 = () => {
             </button>
           </div>
         </div>
+        {renderClientReminderBanner()}
+        {renderSuggestions()}
         {settings.referral.enabled && (
           <div style={{...styles.card, backgroundColor: '#fff8e1'}}>
             <h3>Parrainage</h3>
@@ -1558,19 +2091,140 @@ const RendezVousV6 = () => {
         )}
 
         <h2>Mes réservations</h2>
-        {myReservations.length > 0 ? (
-          myReservations.map(res => (
+        <h3>À venir ({upcoming.length})</h3>
+        {upcoming.length === 0 && <p style={{color: '#666', marginBottom: '15px'}}>Aucun rendez-vous à venir</p>}
+        {upcoming.map(res => {
+          const changeable = canClientChange(res);
+          const isEditing = editingReservation && editingReservation.id === res.id;
+          return (
             <div key={res.id} style={styles.card}>
               <h4>{res.serviceName}</h4>
-              <p><strong>{res.prestataireName}</strong> • {res.prestataireCity}</p>
-              <p>📅 {res.date} à {normalizeTime(res.time)}</p>
+              <p><strong>{res.prestataire.name}</strong> • {res.prestataire.city}</p>
+              <p>📅 {formatDateLong(res.date)} à {normalizeTime(res.time)}</p>
+              {res.modifiedAt && <p style={{fontSize: '13px', color: '#666'}}>Rendez-vous déplacé</p>}
               {renderReservationPrice(res)}
               <p>Paiement : {renderPaymentLabel(res)}</p>
+              {isEditing ? renderEditor(res) : (
+                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
+                  <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => downloadIcs(res, res.prestataire)}>
+                    📅 Ajouter à mon agenda
+                  </button>
+                  {changeable && (
+                    <>
+                      <button
+                        style={{...styles.btn, ...styles.btnWarning}}
+                        onClick={() => setEditingReservation({ id: res.id, prestataireId: res.prestataire.id, date: res.date, time: normalizeTime(res.time) })}
+                      >
+                        Modifier
+                      </button>
+                      <button style={{...styles.btn, ...styles.btnDanger}} onClick={() => handleCancelReservation(res.prestataire, res)}>
+                        Annuler
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {!changeable && (
+                <p style={{fontSize: '13px', color: '#666', marginTop: '10px'}}>
+                  Moins de {CHANGE_DEADLINE_HOURS} h avant votre rendez-vous : pour le modifier ou l'annuler, contactez directement
+                  le prestataire{res.prestataire.email ? <> : <a href={`mailto:${res.prestataire.email}`}>{res.prestataire.email}</a></> : ''}.
+                </p>
+              )}
             </div>
-          ))
-        ) : (
-          <p>Aucune réservation pour le moment</p>
+          );
+        })}
+
+        <div style={{...styles.card, backgroundColor: '#fafafa'}}>
+          <h3>Prendre un nouveau rendez-vous</h3>
+          <div style={{marginBottom: '10px'}}>
+            {['Artisans', 'Beauté'].map(cat => (
+              <button
+                key={cat}
+                style={{...styles.tab, ...(selectedCategory === cat ? styles.tabActive : {})}}
+                onClick={() => { setSelectedCategory(cat); resetSearch(); }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+          {renderSearchBar('light')}
+          {renderSearchResults()}
+        </div>
+
+        {past.length > 0 && (
+          <>
+            <h3>Passés ({past.length})</h3>
+            {past.map(res => {
+              const target = findBookable(res);
+              return (
+                <div key={res.id} style={{...styles.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap'}}>
+                  <div>
+                    <h4 style={{margin: 0}}>{res.serviceName}</h4>
+                    <p style={{margin: 0}}>{res.prestataire.name} • {formatDateLong(res.date)} à {normalizeTime(res.time)}</p>
+                  </div>
+                  {target && (
+                    <button style={{...styles.btn, ...styles.btnPrimary}} onClick={() => rebook(target.prestataire, target.service)}>
+                      Réserver à nouveau
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </>
         )}
+
+        {cancelled.length > 0 && (
+          <>
+            <h3>Annulés ({cancelled.length})</h3>
+            {cancelled.map(res => (
+              <p key={res.id} style={{color: '#888', fontSize: '14px'}}>
+                <s>{res.serviceName} chez {res.prestataire.name} • {formatDateLong(res.date)} à {normalizeTime(res.time)}</s>
+              </p>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderConfirmationPage = () => {
+    if (!lastConfirmation) return null;
+    const { reservation, prestataire, reminder } = lastConfirmation;
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+        </div>
+        <div style={{maxWidth: '520px', margin: '30px auto', textAlign: 'center'}}>
+          <div style={{fontSize: '48px'}}>✅</div>
+          <h2>Réservation confirmée !</h2>
+          <div style={{...styles.card, textAlign: 'left'}}>
+            <h4>{reservation.serviceName}</h4>
+            <p><strong>{prestataire.name}</strong> • {prestataire.city}</p>
+            <p>📅 {formatDateLong(reservation.date)} à {normalizeTime(reservation.time)}</p>
+            {renderReservationPrice(reservation)}
+            <p>Paiement : {renderPaymentLabel(reservation)}</p>
+          </div>
+          {reminder === 'scheduled' && (
+            <p>📧 Un e-mail de rappel vous sera envoyé à {reservation.clientEmail} 24 h avant le rendez-vous.</p>
+          )}
+          <p style={{fontSize: '14px', color: '#666', marginBottom: '20px'}}>
+            Ajoutez le rendez-vous à votre agenda : votre téléphone vous le rappellera 24 h avant.
+          </p>
+          <div style={{display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap'}}>
+            <button style={{...styles.btn, ...styles.btnPrimary}} onClick={() => downloadIcs(reservation, prestataire)}>
+              📅 Ajouter à mon agenda
+            </button>
+            {currentClient && (
+              <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('client-reservations')}>
+                Mes réservations
+              </button>
+            )}
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('home')}>
+              Retour à l'accueil
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -1921,6 +2575,25 @@ const RendezVousV6 = () => {
     );
   };
 
+  // Rappel côté prestataire : les rendez-vous du lendemain
+  const renderTomorrowAppointments = (prestataire) => {
+    const tomorrow = addDays(todayString(), 1);
+    const list = (prestataire.reservations || [])
+      .filter(r => isActiveReservation(r) && r.date === tomorrow)
+      .sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
+    return (
+      <div style={{...styles.card, backgroundColor: '#000', color: '#fff'}}>
+        <h3 style={{color: '#fff'}}>📅 Rendez-vous de demain ({list.length})</h3>
+        {list.length === 0 && <p style={{color: '#ccc', margin: 0}}>Aucun rendez-vous prévu demain.</p>}
+        {list.map(r => (
+          <p key={r.id} style={{margin: '0 0 4px'}}>
+            <strong>{normalizeTime(r.time)}</strong> — {r.serviceName} • {r.clientFirstName} {r.clientName} • ☎️ {r.clientPhone}
+          </p>
+        ))}
+      </div>
+    );
+  };
+
   const renderDashboardPage = () => {
     if (!currentPrestataire) return null;
 
@@ -1955,6 +2628,8 @@ const RendezVousV6 = () => {
             </button>
           </div>
         </div>
+
+        {renderTomorrowAppointments(prestataire)}
 
         <div style={{marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px'}}>
           {['services', 'schedule', 'reservations', 'promos'].map(tab => (
@@ -2324,11 +2999,26 @@ const RendezVousV6 = () => {
           <div>
             <h2>Réservations</h2>
             {prestataire.reservations && prestataire.reservations.length > 0 ? (
-              prestataire.reservations.map(res => (
-                <div key={res.id} style={styles.card}>
-                  <h4>{res.serviceName}</h4>
+              [...prestataire.reservations]
+                .sort((a, b) => appointmentDate(a.date, a.time) - appointmentDate(b.date, b.time))
+                .map(res => (
+                <div key={res.id} style={{...styles.card, ...(isActiveReservation(res) ? {} : { opacity: 0.6 })}}>
+                  <h4>
+                    {res.serviceName}{' '}
+                    {!isActiveReservation(res) && (
+                      <span style={{...styles.badge, backgroundColor: '#f8d7da', color: '#721c24'}}>Annulé par le client</span>
+                    )}
+                    {isActiveReservation(res) && res.modifiedAt && (
+                      <span style={{...styles.badge, backgroundColor: '#fff3cd', color: '#856404'}}>Déplacé par le client</span>
+                    )}
+                  </h4>
                   <p><strong>{res.clientFirstName} {res.clientName}</strong></p>
-                  <p>📅 {res.date} à {res.time}</p>
+                  <p>📅 {formatDateLong(res.date)} à {normalizeTime(res.time)}</p>
+                  {res.previousSlot && isActiveReservation(res) && (
+                    <p style={{fontSize: '13px', color: '#666'}}>
+                      Initialement le {formatDateLong(res.previousSlot.date)} à {normalizeTime(res.previousSlot.time)}
+                    </p>
+                  )}
                   <p>📧 {res.clientEmail} | ☎️ {res.clientPhone}</p>
                   {renderReservationPrice(res)}
                   <p style={{marginTop: '10px'}}>
@@ -2843,6 +3533,7 @@ const RendezVousV6 = () => {
       case 'client-reservations': return renderClientReservationsPage() || renderHomePage();
       case 'prestataire-detail': return renderPrestataireDetailPage() || renderHomePage();
       case 'reservation': return renderReservationPage() || renderHomePage();
+      case 'reservation-confirmed': return renderConfirmationPage() || renderHomePage();
       case 'dashboard': return renderDashboardPage() || renderHomePage();
       case 'admin': return renderAdminPage() || renderHomePage();
       default: return renderHomePage();

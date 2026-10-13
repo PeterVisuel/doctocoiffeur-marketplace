@@ -17,6 +17,10 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - Les données anciennes sont normalisées au chargement (`normalizePrestataire`, `normalizeSchedule`, `loadClients`) :
   garder cette compatibilité quand on change un format.
 - Navigation : un état `page` et un `switch` dans `renderPage()` (pas de routeur).
+- Seule fonction serveur : `api/reminders.js` (fonction Vercel) qui programme / annule chez **Resend** l'e-mail de
+  rappel envoyé 24 h avant un rendez-vous. Variables d'environnement Vercel : `RESEND_API_KEY` et `REMINDER_FROM`
+  (expéditeur sur un domaine vérifié chez Resend). Sans elles, la fonction répond 501 et le site fonctionne sans e-mail
+  (en local avec `npm start` / `serve`, `/api` n'existe pas : même comportement).
 - Le logo est une image JPEG en base64 (`LOGO_BASE64`, ligne 3, très longue) ; utiliser `LOGO_SRC`.
   Ne pas lire `src/App.js` d'un seul bloc : la ligne 3 fait ~105 ko.
 
@@ -30,6 +34,9 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - Mises à jour d'état fonctionnelles (`setX(prev => …)`) ; pour modifier le prestataire courant, passer par
   `updateCurrentPrestataire(p => …)`. Le prestataire courant est toujours relu depuis la liste (`currentPrestataire`).
 - `index.css` impose `button { margin: 10px }` : annulé par `.rv-app button { margin: 0 }` dans `GLOBAL_CSS`.
+- Une réservation annulée garde `status: 'cancelled'` (elle n'est pas supprimée) : filtrer avec `isActiveReservation`
+  partout où l'on compte ou bloque des créneaux (`isSlotBooked` le fait déjà).
+- Typographie française : espace insécable (`\u00a0`) avant « : » et « ! » dans les titres.
 
 ## Décisions produit (validées lors des PR #1 à #3)
 
@@ -53,6 +60,22 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - **Parrainage** : activé et réglé par l'admin (réduction filleul / parrain). Le filleul reçoit un bon à l'inscription,
   le parrain après la première réservation du filleul. Réductions réglées sur place, à la charge de la plateforme.
 - **Design** : rester en **noir et blanc** (police Nunito, coins arrondis, boutons en pastille, ombres légères).
+- **Accueil** : titre « Trouvez votre prochain rendez-vous, peu importe le domaine : c'est ici ! ». Recherche par ville,
+  par nom ou **par prestation** (sans tenir compte des accents ; les prestations trouvées sont mises en avant).
+- **Connexion client** : on distingue « e-mail inconnu » (fenêtre « Adresse e-mail inconnue » avec « Créer mon compte »,
+  e-mail pré-rempli, ou « Corriger l'adresse ») et « Mot de passe incorrect. Vérifiez-le et réessayez. ».
+- **Page Connexion Prestataire** : encadré « Vous souhaitez élargir votre activité ? « Rendez Vous » est la plateforme
+  faite pour vous. Centralisez vos rendez-vous et vos rappels en un seul lieu. »
+- **Mes réservations** : rendez-vous à venir / passés / annulés, recherche pour prendre un nouveau rendez-vous sans
+  revenir à l'accueil, « Réserver à nouveau » sur les rendez-vous passés.
+- **Suggestions « Pour vous »** (client connecté, accueil et Mes réservations) : A. renouveler le dernier rendez-vous,
+  B. créneau habituel (même jour et même heure au moins 2 fois → prochain créneau libre), C. rythme habituel
+  (intervalle moyen entre les rendez-vous passés).
+- **Rappels 24 h avant** : sans serveur, fichier agenda `.ics` avec alarme 24 h avant (« Ajouter à mon agenda »),
+  bandeau de rappel pour le client et « Rendez-vous de demain » pour le prestataire ; avec serveur, e-mail programmé
+  via Resend (`api/reminders.js`), annulé ou reprogrammé quand le client annule ou déplace.
+- **Modifier / annuler** : le client peut déplacer ou annuler **jusqu'à 24 h avant** (`CHANGE_DEADLINE_HOURS`) ;
+  ensuite il doit contacter le prestataire. Une annulation libère le créneau et rend le code promo utilisé.
 
 ## Historique
 
@@ -61,6 +84,9 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #2 : comptes clients, plusieurs créneaux par jour, logo agrandi, devanture simplifiée, admin via connexion prestataire.
 - PR #3 : codes promo et parrainage, comptes créés par l'admin, paiement en ligne retiré, design plus convivial,
   correction INP (notifications au lieu d'`alert()`), activité obligatoire à l'inscription prestataire.
+- PR #4 : ajout de ce fichier.
+- PR #5 : recherche par prestation, e-mail inconnu à la connexion, nouveaux textes, Mes réservations enrichi,
+  suggestions « Pour vous », rappels 24 h avant (agenda + e-mail Resend), modification / annulation jusqu'à 24 h avant.
 
 ## Prochaines étapes envisagées
 
@@ -68,7 +94,9 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
    entre appareils et ne sont vérifiés que dans le navigateur. Prérequis à toute mise en service réelle.
 2. Authentification côté serveur (les mots de passe, y compris admin, sont aujourd'hui en clair dans le navigateur / le code).
 3. Paiement en ligne (Stripe), puis éventuellement Stripe Connect pour reverser aux prestataires.
-4. Durée par prestation, emails de confirmation.
+4. Durée par prestation, e-mail de confirmation à la réservation, rappels SMS.
+5. Protéger `api/reminders.js` contre les abus (limitation de débit, vérification de la réservation côté serveur) :
+   possible seulement avec la base de données.
 
 ## Vérifier une modification
 
