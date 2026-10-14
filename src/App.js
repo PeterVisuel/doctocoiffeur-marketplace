@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE } from './supabaseClient';
+import * as db from './dataService';
 
 // Logo servi comme fichier statique (public/logo-rendez-vous.jpg), mis en cache par le navigateur
 const LOGO_SRC = `${process.env.PUBLIC_URL}/logo-rendez-vous.jpg`;
-
-const STORAGE_KEY = 'rendez_v6_prestataires';
 
 // Styles globaux : survols, focus et typographie (impossible en style inline)
 const GLOBAL_CSS = `
@@ -39,55 +39,6 @@ const GLOBAL_CSS = `
     .rv-app p, .rv-app button { font-size: 13px !important; }
   }
 `;
-
-const SAMPLE_DATA = [
-  {
-    id: 1,
-    name: 'Salon Élégance',
-    city: 'Paris',
-    email: 'elegance@salon.fr',
-    password: 'pass123',
-    category: 'Beauté',
-    approved: true,
-    emailVerified: true,
-    services: [
-      { id: 101, name: 'Coupe Femme', minPrice: 45, maxPrice: 45, photos: [] },
-      { id: 102, name: 'Coloration', minPrice: 70, maxPrice: 90, photos: [] },
-    ],
-    schedule: {
-      monday: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }],
-      tuesday: [{ start: '09:00', end: '18:00' }]
-    },
-    blockedHours: [],
-    reservations: [],
-    photos: [],
-  },
-  {
-    id: 2,
-    name: 'Studio Artisan',
-    city: 'Lyon',
-    email: 'artisan@studio.fr',
-    password: 'pass123',
-    category: 'Artisans',
-    approved: true,
-    emailVerified: true,
-    services: [
-      { id: 201, name: 'Coaching Personnel', minPrice: 50, maxPrice: 100, photos: [] },
-    ],
-    schedule: {},
-    blockedHours: [],
-    reservations: [],
-    photos: [],
-  }
-];
-
-const CLIENTS_STORAGE_KEY = 'rendez_v6_clients';
-
-// Comptes administrateurs : ils se connectent via « Connexion Prestataire ».
-// Ajoutez une ligne par administrateur.
-const ADMIN_ACCOUNTS = [
-  { email: 'admin123', password: 'admin123' }
-];
 
 const DAYS = [
   { key: 'monday', label: 'Lundi' },
@@ -291,9 +242,6 @@ const normalizePrestataire = (p) => ({
   schedule: normalizeSchedule(p.schedule)
 });
 
-const PROMOS_STORAGE_KEY = 'rendez_v6_promos';
-const SETTINGS_STORAGE_KEY = 'rendez_v6_settings';
-
 // Réglages de la plateforme modifiables par l'admin
 const DEFAULT_SETTINGS = {
   referral: {
@@ -301,38 +249,6 @@ const DEFAULT_SETTINGS = {
     refereeReward: { type: 'percent', value: 10 }, // offert au filleul (nouveau client)
     sponsorReward: { type: 'percent', value: 10 }  // offert au parrain après la 1re réservation du filleul
   }
-};
-
-const readStorage = (key) => {
-  try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : null;
-  } catch (e) {
-    console.error(`Données locales illisibles (${key}), réinitialisation`, e);
-    return null;
-  }
-};
-
-const writeStorage = (key, value) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    console.error(`Sauvegarde locale impossible (${key})`, e);
-  }
-};
-
-const randomSuffix = (length) => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O ni 1/I, faciles à confondre
-  let result = '';
-  for (let i = 0; i < length; i++) result += chars[Math.floor(Math.random() * chars.length)];
-  return result;
-};
-
-const makeReferralCode = (firstName) => {
-  const base = String(firstName || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
-  return `${base || 'CLIENT'}-${randomSuffix(4)}`;
 };
 
 const normalizeCode = (code) => String(code || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -362,47 +278,12 @@ const validateDiscount = (type, value) => {
   return null;
 };
 
-const loadClients = () => {
-  const parsed = readStorage(CLIENTS_STORAGE_KEY);
-  if (!Array.isArray(parsed)) return [];
-  // Chaque client possède un code de parrainage personnel
-  return parsed.map(c => (c.referralCode ? c : { ...c, referralCode: makeReferralCode(c.firstName) }));
-};
-
-const loadPromoCodes = () => {
-  const parsed = readStorage(PROMOS_STORAGE_KEY);
-  return Array.isArray(parsed) ? parsed : [];
-};
-
-const loadSettings = () => {
-  const parsed = readStorage(SETTINGS_STORAGE_KEY);
-  if (!parsed || typeof parsed !== 'object') return DEFAULT_SETTINGS;
-  return {
-    ...DEFAULT_SETTINGS,
-    ...parsed,
-    referral: { ...DEFAULT_SETTINGS.referral, ...(parsed.referral || {}) }
-  };
-};
-
 const EMPTY_PROMO_FORM = {
   code: '', type: 'percent', value: '', serviceIds: [],
   startDate: '', endDate: '', maxUses: '', onePerClient: false
 };
 
 const EMPTY_CLIENT_REGISTRATION = { lastName: '', firstName: '', email: '', phone: '', password: '', referralCode: '' };
-
-const loadPrestataires = () => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed.map(normalizePrestataire);
-    }
-  } catch (e) {
-    console.error('Données locales illisibles, réinitialisation', e);
-  }
-  return SAMPLE_DATA.map(normalizePrestataire);
-};
 
 // Valide les prix saisis ; renvoie un message d'erreur ou null
 const validatePrices = (minPrice, maxPrice) => {
@@ -478,10 +359,23 @@ const RendezVousV6 = () => {
 
   const canOfferInstall = !isInstalled && (Boolean(installPrompt) || isIOS);
   const [page, setPage] = useState('home');
-  const [prestataires, setPrestataires] = useState(loadPrestataires);
-  const [clients, setClients] = useState(loadClients);
-  const [promoCodes, setPromoCodes] = useState(loadPromoCodes);
-  const [settings, setSettings] = useState(loadSettings);
+  const [prestataires, setPrestataires] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [promoCodes, setPromoCodes] = useState([]);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  // Connexion vérifiée au démarrage / données chargées depuis la base
+  const [authReady, setAuthReady] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  // Créneaux pris par prestataire (sans données client) : { [prestataireId]: [{ date, time }] }
+  const [bookedSlots, setBookedSlots] = useState({});
+  // Réservation commencée avant connexion : reprise après la connexion du client
+  const [pendingBooking, setPendingBooking] = useState(null);
+  const [bookingInProgress, setBookingInProgress] = useState(false);
+  // Mot de passe oublié / nouveau mot de passe
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotPasswordFrom, setForgotPasswordFrom] = useState('login-client');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   // Dernière recherche lancée (pour « Aucun résultat » et la mise en avant des prestations)
   const [lastSearch, setLastSearch] = useState(null);
@@ -505,7 +399,8 @@ const RendezVousV6 = () => {
   // Codes promo
   const [promoForm, setPromoForm] = useState(EMPTY_PROMO_FORM);
   const [promoInput, setPromoInput] = useState('');
-  const [appliedPromoCode, setAppliedPromoCode] = useState('');
+  // Code promo vérifié par la base pour la réservation en cours
+  const [appliedPromo, setAppliedPromo] = useState(null);
   
   // Reservation form state
   const [reservationData, setReservationData] = useState({
@@ -543,6 +438,7 @@ const RendezVousV6 = () => {
 
   // Login form state
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginInProgress, setLoginInProgress] = useState(false);
 
   // Client registration state
   const [clientRegistration, setClientRegistration] = useState(EMPTY_CLIENT_REGISTRATION);
@@ -676,34 +572,79 @@ const RendezVousV6 = () => {
     },
   };
 
-  // Save to localStorage (les photos en base64 peuvent dépasser le quota)
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(prestataires));
-    } catch (e) {
-      console.error('Sauvegarde locale impossible', e);
-      notify('Sauvegarde impossible : espace de stockage plein (trop de photos ?)');
-    }
-  }, [prestataires]);
+  // ----- Données : lues et enregistrées dans la base Supabase -----
+  const homePageForRole = (role) => (role === 'admin' ? 'admin' : role === 'prestataire' ? 'dashboard' : 'home');
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
-    } catch (e) {
-      console.error('Sauvegarde des comptes clients impossible', e);
-    }
-  }, [clients]);
+  const applyLoadedData = (data) => {
+    setPrestataires(data.prestataires.map(normalizePrestataire));
+    setPromoCodes(data.promoCodes);
+    if (data.settings) setSettings({ referral: { ...DEFAULT_SETTINGS.referral, ...data.settings.referral } });
+    // Profils visibles : le sien pour un client, tous les clients pour l'admin
+    setClients(data.profiles.filter(profile => profile.role === 'client'));
+    setDataLoaded(true);
+  };
 
-  useEffect(() => { writeStorage(PROMOS_STORAGE_KEY, promoCodes); }, [promoCodes]);
-  useEffect(() => { writeStorage(SETTINGS_STORAGE_KEY, settings); }, [settings]);
+  // Recharge tout ce que l'utilisateur a le droit de voir (la base filtre selon le compte)
+  const reloadData = async (user = currentUser) => {
+    if (!isSupabaseConfigured) return null;
+    try {
+      const data = await db.loadAll(Boolean(user));
+      applyLoadedData(data);
+      return data;
+    } catch (e) {
+      console.error(e);
+      notify('Connexion à la base de données impossible. Vérifiez votre connexion internet.');
+      return null;
+    }
+  };
+
+  // Au démarrage : session déjà ouverte ? lien e-mail (confirmation / mot de passe oublié) ?
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthReady(true);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      let user = null;
+      try {
+        const session = await db.getSession();
+        if (session) {
+          const profile = await db.getProfile(session.user.id);
+          user = { id: profile.id, role: profile.role, email: profile.email };
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      if (cancelled) return;
+      setCurrentUser(user);
+      setAuthReady(true);
+      await reloadData(user);
+      if (cancelled) return;
+      if (INITIAL_AUTH_LINK_TYPE === 'recovery') {
+        setPage('reset-password');
+      } else if (user) {
+        if (INITIAL_AUTH_LINK_TYPE === 'signup') notify('Adresse e-mail confirmée : bienvenue sur Rendez Vous !');
+        setPage(homePageForRole(user.role));
+      }
+    })();
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setPage('reset-password');
+    });
+    return () => {
+      cancelled = true;
+      listener.subscription.unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Le prestataire connecté est toujours lu depuis la liste, pour rester synchronisé
   // (nouvelles réservations, approbation admin, etc.)
   // Un admin peut ouvrir le tableau de bord de n'importe quel prestataire
   const isAdmin = Boolean(currentUser && currentUser.role === 'admin');
-  const currentPrestataireId = currentUser?.role === 'prestataire'
-    ? currentUser.id
-    : isAdmin ? managedPrestataireId : null;
+  const ownPrestataire = currentUser?.role === 'prestataire'
+    ? prestataires.find(p => p.ownerId === currentUser.id) || null
+    : null;
+  const currentPrestataireId = ownPrestataire ? ownPrestataire.id : isAdmin ? managedPrestataireId : null;
   const currentPrestataire = currentPrestataireId != null
     ? prestataires.find(p => p.id === currentPrestataireId) || null
     : null;
@@ -712,98 +653,99 @@ const RendezVousV6 = () => {
     ? clients.find(c => c.id === currentUser.id) || null
     : null;
 
-  const updateCurrentPrestataire = (updater) => {
-    if (currentPrestataireId == null) return;
-    setPrestataires(prev => prev.map(p => (p.id === currentPrestataireId ? updater(p) : p)));
+  // Modifie le prestataire courant puis l'enregistre dans la base ; renvoie true si c'est enregistré
+  const updateCurrentPrestataire = async (updater) => {
+    const current = prestataires.find(p => p.id === currentPrestataireId);
+    if (!current) return false;
+    const next = updater(current);
+    setPrestataires(prev => prev.map(p => (p.id === next.id ? next : p)));
+    try {
+      await db.savePrestataire(next);
+      return true;
+    } catch (e) {
+      notify(`Enregistrement impossible : ${e.message}`);
+      reloadData();
+      return false;
+    }
+  };
+
+  // Après connexion ou inscription : profil, données, puis la bonne page
+  const finishSignIn = async (session, message) => {
+    const profile = await db.getProfile(session.user.id);
+    const user = { id: profile.id, role: profile.role, email: profile.email };
+    setCurrentUser(user);
+    const data = await reloadData(user);
+    if (message) notify(message);
+    if (user.role === 'admin') {
+      setManagedPrestataireId(null);
+      setAdminTab('prestataires');
+    }
+    if (user.role === 'prestataire') setDashboardTab('services');
+    if (user.role === 'client' && pendingBooking) {
+      // Le client voulait réserver : on reprend là où il en était
+      const prestataire = (data && data.prestataires.find(p => p.id === pendingBooking.prestataire.id)) || pendingBooking.prestataire;
+      setSelectedPrestataire(prestataire);
+      startReservation(pendingBooking.service, pendingBooking.preset, prestataire, profile);
+      setPendingBooking(null);
+    } else {
+      setPage(homePageForRole(user.role));
+    }
+    return { user, data };
   };
 
   // Functions
-  const handleRegisterPrestataire = (formData) => {
-    const email = formData.email.trim().toLowerCase();
-    if (prestataires.some(p => (p.email || '').toLowerCase() === email)) {
-      notify('Un compte existe déjà avec cet email');
+  const handleRegisterPrestataire = async (formData) => {
+    try {
+      const result = await db.signUp(formData.email, formData.password, {
+        role: 'prestataire',
+        name: formData.name,
+        city: formData.city,
+        category: formData.category
+      });
+      if (result.needsConfirmation) {
+        notify("Inscription enregistrée. Confirmez votre adresse grâce à l'e-mail que nous venons de vous envoyer, puis connectez-vous.");
+        setPage('home');
+        return true;
+      }
+      await finishSignIn(result.session, 'Inscription envoyée. Votre salon sera visible sur le site après validation par un administrateur.');
+      return true;
+    } catch (e) {
+      notify(e.message);
       return false;
     }
-    setPrestataires(prev => [
-      ...prev,
-      {
-        ...formData,
-        email,
-        id: Math.max(...prev.map(p => p.id || 0), 0) + 1,
-        approved: false,
-        emailVerified: false,
-        services: [],
-        photos: [],
-        reservations: [],
-        team: [],
-        schedule: DEFAULT_SCHEDULE,
-        blockedHours: []
-      }
-    ]);
-    notify('Inscription envoyée. Votre compte sera actif après validation par un administrateur.');
-    setPage('home');
-    return true;
   };
 
-  // Crée un bon de réduction personnel (parrainage), utilisable une fois
-  const createReferralReward = (clientId, reward, label) => ({
-    id: `${Date.now()}-${randomSuffix(6)}`,
-    code: `${label}-${randomSuffix(6)}`,
-    kind: 'parrainage',
-    prestataireId: null, // valable chez tous les prestataires
-    clientId,
-    type: reward.type,
-    value: reward.value,
-    serviceIds: [],
-    startDate: '',
-    endDate: '',
-    maxUses: 1,
-    onePerClient: true,
-    usedCount: 0,
-    usedBy: [],
-    status: 'active', // le programme a été activé par l'admin
-    createdAt: new Date().toISOString()
-  });
-
-  const handleRegisterClient = (formData) => {
-    const email = formData.email.trim().toLowerCase();
-    if (clients.some(c => c.email === email)) {
-      notify('Un compte client existe déjà avec cet email');
-      return false;
-    }
-    const referralEnabled = settings.referral.enabled;
-    const sponsorCode = normalizeCode(formData.referralCode);
-    let sponsor = null;
-    if (referralEnabled && sponsorCode) {
-      sponsor = clients.find(c => normalizeCode(c.referralCode) === sponsorCode);
-      if (!sponsor) {
+  const handleRegisterClient = async (formData) => {
+    const sponsorCode = settings.referral.enabled ? normalizeCode(formData.referralCode) : '';
+    try {
+      if (sponsorCode && !(await db.referralCodeExists(sponsorCode))) {
         notify('Code de parrainage inconnu. Vérifiez-le ou laissez le champ vide.');
         return false;
       }
+      const result = await db.signUp(formData.email, formData.password, {
+        role: 'client',
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim(),
+        phone: formData.phone.trim(),
+        referral_code: sponsorCode
+      });
+      if (result.needsConfirmation) {
+        notify("Compte créé ! Confirmez votre adresse grâce à l'e-mail que nous venons de vous envoyer, puis connectez-vous.");
+        setPage('login-client');
+        return true;
+      }
+      const { user, data } = await finishSignIn(result.session, null);
+      let welcome = `Bienvenue ${formData.firstName.trim()} ! Votre compte est créé.`;
+      const voucher = data && data.promoCodes.find(pc => pc.clientId === user.id && pc.kind === 'parrainage');
+      if (voucher) {
+        welcome += `\nGrâce au parrainage, vous bénéficiez de ${describeDiscount(voucher)} sur votre première réservation (code ${voucher.code}, visible dans « Mes réservations »).`;
+      }
+      notify(welcome);
+      return true;
+    } catch (e) {
+      notify(e.message);
+      return false;
     }
-    const newClient = {
-      id: Math.max(...clients.map(c => c.id || 0), 0) + 1,
-      lastName: formData.lastName.trim(),
-      firstName: formData.firstName.trim(),
-      email,
-      phone: formData.phone.trim(),
-      password: formData.password,
-      referralCode: makeReferralCode(formData.firstName),
-      referredBy: sponsor ? sponsor.id : null,
-      sponsorRewarded: false,
-      createdAt: new Date().toISOString()
-    };
-    setClients(prev => [...prev, newClient]);
-    let welcome = `Bienvenue ${newClient.firstName} ! Votre compte est créé.`;
-    if (sponsor) {
-      const reward = createReferralReward(newClient.id, settings.referral.refereeReward, 'BIENVENUE');
-      setPromoCodes(prev => [...prev, reward]);
-      welcome += `\nGrâce au parrainage, vous bénéficiez de ${describeDiscount(reward)} sur votre première réservation (code ${reward.code}, visible dans « Mes réservations »).`;
-    }
-    setCurrentUser({ id: newClient.id, role: 'client' });
-    notify(welcome);
-    setPage('home');
-    return true;
   };
 
   // ----- Ajout / modification de comptes par l'admin -----
@@ -827,11 +769,10 @@ const RendezVousV6 = () => {
     window.scrollTo(0, 0);
   };
 
-  const handleSaveAdminForm = () => {
+  const handleSaveAdminForm = async () => {
     if (!adminForm) return;
     const { type, id, values } = adminForm;
     const isEdit = id != null;
-    const email = values.email.trim().toLowerCase();
     const required = type === 'prestataire'
       ? [values.name, values.city, values.email]
       : [values.lastName, values.firstName, values.email, values.phone];
@@ -839,66 +780,46 @@ const RendezVousV6 = () => {
       notify('Remplissez tous les champs');
       return;
     }
-    if (values.password && values.password.length < 6) {
+    if (!isEdit && values.password.length < 6) {
       notify('Le mot de passe doit contenir au moins 6 caractères');
       return;
     }
-    const list = type === 'prestataire' ? prestataires : clients;
-    if (list.some(item => (item.email || '').toLowerCase() === email && item.id !== id)) {
-      notify('Un compte existe déjà avec cet email');
-      return;
-    }
-
-    if (type === 'prestataire') {
-      const fields = { name: values.name.trim(), category: values.category, city: values.city.trim(), email };
-      if (values.password) fields.password = values.password;
-      if (isEdit) {
-        setPrestataires(prev => prev.map(p => (p.id === id ? { ...p, ...fields } : p)));
+    try {
+      if (isEdit && type === 'prestataire') {
+        const existing = prestataires.find(p => p.id === id);
+        await db.savePrestataire({
+          ...existing,
+          name: values.name.trim(),
+          category: values.category,
+          city: values.city.trim(),
+          email: values.email.trim().toLowerCase()
+        });
+      } else if (isEdit) {
+        await db.updateProfile(id, {
+          firstName: values.firstName.trim(),
+          lastName: values.lastName.trim(),
+          phone: values.phone.trim()
+        });
+      } else if (type === 'prestataire') {
+        await db.adminUsers('create_prestataire', {
+          email: values.email, password: values.password, name: values.name, city: values.city, category: values.category
+        });
       } else {
-        setPrestataires(prev => [
-          ...prev,
-          normalizePrestataire({
-            ...fields,
-            id: Math.max(...prev.map(p => p.id || 0), 0) + 1,
-            approved: true, // créé par l'admin : directement actif
-            emailVerified: true,
-            services: [],
-            reservations: [],
-            team: [],
-            schedule: DEFAULT_SCHEDULE
-          })
-        ]);
+        await db.adminUsers('create_client', {
+          email: values.email, password: values.password, firstName: values.firstName, lastName: values.lastName, phone: values.phone
+        });
       }
-    } else {
-      const fields = {
-        lastName: values.lastName.trim(),
-        firstName: values.firstName.trim(),
-        email,
-        phone: values.phone.trim()
-      };
-      if (values.password) fields.password = values.password;
-      if (isEdit) {
-        setClients(prev => prev.map(c => (c.id === id ? { ...c, ...fields } : c)));
-      } else {
-        setClients(prev => [
-          ...prev,
-          {
-            ...fields,
-            id: Math.max(...prev.map(c => c.id || 0), 0) + 1,
-            referralCode: makeReferralCode(fields.firstName),
-            referredBy: null,
-            sponsorRewarded: false,
-            createdAt: new Date().toISOString()
-          }
-        ]);
-      }
+      await reloadData();
+      notify(isEdit ? 'Modifications enregistrées' : `${type === 'prestataire' ? 'Prestataire' : 'Client'} ajouté. Communiquez-lui son mot de passe provisoire.`);
+      setAdminForm(null);
+    } catch (e) {
+      notify(e.message);
     }
-    notify(isEdit ? 'Modifications enregistrées' : `${type === 'prestataire' ? 'Prestataire' : 'Client'} ajouté. Communiquez-lui son mot de passe provisoire.`);
-    setAdminForm(null);
   };
 
   // ----- Codes promo -----
-  // Vérifie qu'un code est utilisable ; renvoie { promo } ou { error }
+  // Vérifie qu'un code visible par l'utilisateur est utilisable (bons personnels du client).
+  // La vérification qui fait foi est faite par la base au moment de réserver.
   const checkPromoCode = (input, { prestataireId, serviceId, clientId }) => {
     const code = normalizeCode(input);
     if (!code) return { error: 'Saisissez un code' };
@@ -928,7 +849,7 @@ const RendezVousV6 = () => {
     return { promo };
   };
 
-  const handleCreatePromo = () => {
+  const handleCreatePromo = async () => {
     const code = normalizeCode(promoForm.code);
     if (!code || promoForm.value === '') {
       notify('Renseignez au moins le code et la réduction');
@@ -952,18 +873,10 @@ const RendezVousV6 = () => {
       notify("Le nombre maximum d'utilisations doit être un entier positif");
       return;
     }
-    if (promoCodes.some(pc => normalizeCode(pc.code) === code)) {
-      notify('Ce code existe déjà, choisissez-en un autre');
-      return;
-    }
-    setPromoCodes(prev => [
-      ...prev,
-      {
-        id: `${Date.now()}-${randomSuffix(6)}`,
+    try {
+      await db.createPromo({
         code,
-        kind: 'promo',
         prestataireId: currentPrestataireId,
-        clientId: null,
         type: promoForm.type,
         value: parseFloat(promoForm.value),
         serviceIds: promoForm.serviceIds,
@@ -971,30 +884,40 @@ const RendezVousV6 = () => {
         endDate: promoForm.endDate,
         maxUses,
         onePerClient: promoForm.onePerClient,
-        usedCount: 0,
-        usedBy: [],
-        // Un code créé par un prestataire doit être activé par l'admin
-        status: isAdmin ? 'active' : 'pending',
-        createdAt: new Date().toISOString()
-      }
-    ]);
-    setPromoForm(EMPTY_PROMO_FORM);
-    notify(isAdmin
-      ? `Code ${code} enregistré et actif.`
-      : `Code ${code} enregistré. Il sera utilisable dès qu'un administrateur l'aura activé.`);
+        // Un code créé par un prestataire doit être activé par l'admin (la base l'impose)
+        status: isAdmin ? 'active' : 'pending'
+      });
+      await reloadData();
+      setPromoForm(EMPTY_PROMO_FORM);
+      notify(isAdmin
+        ? `Code ${code} enregistré et actif.`
+        : `Code ${code} enregistré. Il sera utilisable dès qu'un administrateur l'aura activé.`);
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
-  const setPromoStatus = (id, status) => {
-    setPromoCodes(prev => prev.map(pc => (pc.id === id ? { ...pc, status } : pc)));
+  const setPromoStatus = async (id, status) => {
+    try {
+      await db.updatePromoStatus(id, status);
+      await reloadData();
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
   const handleDeletePromo = (id) => {
-    askConfirm('Supprimer ce code ?', () => {
-      setPromoCodes(prev => prev.filter(pc => pc.id !== id));
+    askConfirm('Supprimer ce code ?', async () => {
+      try {
+        await db.deletePromo(id);
+        await reloadData();
+      } catch (e) {
+        notify(e.message);
+      }
     });
   };
 
-  const handleSaveReferralSettings = () => {
+  const handleSaveReferralSettings = async () => {
     if (!referralDraft) return;
     for (const reward of [referralDraft.refereeReward, referralDraft.sponsorReward]) {
       const error = validateDiscount(reward.type, reward.value);
@@ -1003,16 +926,19 @@ const RendezVousV6 = () => {
         return;
       }
     }
-    setSettings(prev => ({
-      ...prev,
-      referral: {
-        enabled: referralDraft.enabled,
-        refereeReward: { type: referralDraft.refereeReward.type, value: parseFloat(referralDraft.refereeReward.value) },
-        sponsorReward: { type: referralDraft.sponsorReward.type, value: parseFloat(referralDraft.sponsorReward.value) }
-      }
-    }));
-    setReferralDraft(null);
-    notify('Réglages du parrainage enregistrés');
+    const referral = {
+      enabled: referralDraft.enabled,
+      refereeReward: { type: referralDraft.refereeReward.type, value: parseFloat(referralDraft.refereeReward.value) },
+      sponsorReward: { type: referralDraft.sponsorReward.type, value: parseFloat(referralDraft.sponsorReward.value) }
+    };
+    try {
+      await db.updateReferralSettings(referral);
+      setSettings(prev => ({ ...prev, referral }));
+      setReferralDraft(null);
+      notify('Réglages du parrainage enregistrés');
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
   const handleEditService = (serviceId, service) => {
@@ -1052,7 +978,7 @@ const RendezVousV6 = () => {
     setEditingService({ name: '', minPrice: '', maxPrice: '' });
   };
 
-  const handleSaveSchedule = () => {
+  const handleSaveSchedule = async () => {
     const scheduleError = validateSchedule(scheduleData);
     if (scheduleError) {
       notify(scheduleError);
@@ -1063,47 +989,31 @@ const RendezVousV6 = () => {
       sortedSchedule[key] = [...(scheduleData[key] || [])]
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
     });
-    updateCurrentPrestataire(p => ({ ...p, schedule: sortedSchedule }));
-    setEditingSchedule(false);
-    notify('Créneaux sauvegardés');
-  };
-
-  const handleLogin = (email, password, role) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (role === 'prestataire') {
-      // Identifiants administrateur saisis dans la connexion prestataire => accès admin
-      const admin = ADMIN_ACCOUNTS.find(
-        a => a.email.toLowerCase() === normalizedEmail && a.password === password
-      );
-      if (admin) {
-        setCurrentUser({ email: admin.email, role: 'admin' });
-        setManagedPrestataireId(null);
-        setAdminTab('prestataires');
-        setPage('admin');
-        return true;
-      }
-      const prestataire = prestataires.find(
-        p => (p.email || '').toLowerCase() === normalizedEmail && p.password === password
-      );
-      if (prestataire && !prestataire.emailVerified) return { error: 'pending' };
-      if (prestataire) {
-        setCurrentUser({ id: prestataire.id, role: 'prestataire' });
-        setDashboardTab('services');
-        setPage('dashboard');
-        return { ok: true };
-      }
-    } else if (role === 'client') {
-      const client = clients.find(c => c.email === normalizedEmail);
-      if (!client) return { error: 'unknown-email' };
-      if (client.password !== password) return { error: 'wrong-password' };
-      setCurrentUser({ id: client.id, role: 'client' });
-      setPage('home');
-      return { ok: true };
+    if (await updateCurrentPrestataire(p => ({ ...p, schedule: sortedSchedule }))) {
+      setEditingSchedule(false);
+      notify('Créneaux sauvegardés');
     }
-    return { error: 'invalid' };
   };
 
-  const handleLogout = () => {
+  // Connexion (clients, prestataires et administrateurs) ; le rôle vient du profil dans la base
+  const handleLogin = async (email, password) => {
+    if (!isSupabaseConfigured) return { error: 'network', message: 'Base de données non configurée' };
+    try {
+      const result = await db.signIn(email, password);
+      if (result.error) return result;
+      await finishSignIn(result.session, null);
+      return { ok: true };
+    } catch (e) {
+      return { error: 'network', message: e.message };
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await db.signOut();
+    } catch (e) {
+      console.error(e);
+    }
     setCurrentUser(null);
     setManagedPrestataireId(null);
     setPage('home');
@@ -1118,17 +1028,67 @@ const RendezVousV6 = () => {
     setReferralDraft(null);
     setPromoForm(EMPTY_PROMO_FORM);
     setPromoInput('');
-    setAppliedPromoCode('');
+    setAppliedPromo(null);
+    setPendingBooking(null);
     setServiceSavedMessage('');
     setReservationData({
       clientName: '', clientFirstName: '', clientEmail: '', clientPhone: '',
       selectedDate: '', selectedTime: '', paymentMethod: 'prestataire'
     });
+    reloadData(null);
+  };
+
+  // ----- Mot de passe oublié -----
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) {
+      notify('Saisissez votre adresse e-mail');
+      return;
+    }
+    try {
+      await db.sendPasswordReset(forgotEmail);
+      // Même message que l'adresse existe ou non (pour ne pas révéler quels comptes existent)
+      notify("Si un compte existe avec cette adresse, vous allez recevoir un e-mail avec un lien pour choisir un nouveau mot de passe.");
+      setForgotEmail('');
+      setPage(forgotPasswordFrom || 'login-client');
+    } catch (err) {
+      notify(err.message);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      notify('Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      notify('Les deux mots de passe ne correspondent pas');
+      return;
+    }
+    try {
+      await db.updatePassword(newPassword);
+      setNewPassword('');
+      setNewPasswordConfirm('');
+      const session = await db.getSession();
+      if (session) {
+        await finishSignIn(session, 'Mot de passe modifié : vous êtes connecté.');
+      } else {
+        notify('Mot de passe modifié : vous pouvez vous connecter.');
+        setPage('home');
+      }
+    } catch (err) {
+      notify(err.message);
+    }
   };
 
   const serviceMatches = (service, query) => normalizeText(service.name).includes(query);
 
   const handleSearch = () => {
+    if (!dataLoaded) {
+      notify('Chargement des prestataires en cours, réessayez dans un instant.');
+      return;
+    }
     let results = prestataires.filter(p => p.approved && p.emailVerified && p.category === selectedCategory);
     const query = normalizeText(searchValue);
 
@@ -1151,11 +1111,21 @@ const RendezVousV6 = () => {
     setLastSearch(null);
   };
 
+  // Créneaux déjà pris chez un prestataire (fournis par la base, sans les données des autres clients)
+  const loadBookedSlots = async (prestataireId) => {
+    if (!isSupabaseConfigured || prestataireId == null) return;
+    try {
+      const slots = await db.fetchBookedSlots(prestataireId);
+      setBookedSlots(prev => ({ ...prev, [prestataireId]: slots }));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const checkAvailability = (prestaireId, date, time) => {
     const prestataire = prestataires.find(p => p.id === prestaireId);
     if (!prestataire) return false;
 
-    // Simple availability check - in real app would be more complex
     if ((prestataire.blockedHours || []).includes(`${date}-${time}`)) return false;
     // Le créneau doit faire partie des horaires d'ouverture
     if (!getTimeOptions(prestataire.schedule, date).includes(normalizeTime(time))) return false;
@@ -1164,35 +1134,44 @@ const RendezVousV6 = () => {
   };
 
   // excludeId : la réservation en cours de modification ne bloque pas son propre créneau
-  const isSlotBooked = (prestataire, date, time, excludeId = null) =>
-    (prestataire.reservations || []).some(
-      r => isActiveReservation(r) && r.id !== excludeId &&
-        r.date === date && normalizeTime(r.time) === normalizeTime(time)
-    );
+  const isSlotBooked = (prestataire, date, time, excludeId = null) => {
+    const t = normalizeTime(time);
+    const visible = prestataire.reservations || [];
+    if (visible.some(r => isActiveReservation(r) && r.id !== excludeId && r.date === date && normalizeTime(r.time) === t)) {
+      return true;
+    }
+    const excluded = excludeId ? visible.find(r => r.id === excludeId) : null;
+    return (bookedSlots[prestataire.id] || []).some(s =>
+      s.date === date && normalizeTime(s.time) === t
+      && !(excluded && excluded.date === date && normalizeTime(excluded.time) === t));
+  };
 
-  // Pré-remplit le formulaire de réservation avec les infos du client connecté
-  const startReservation = (service, preset = null) => {
+  // Ouvre la page de réservation (pré-remplie avec les infos du client connecté).
+  // Sans compte client, la page invite à se connecter puis reprend la réservation.
+  const startReservation = (service, preset = null, prestataire = selectedPrestataire, clientProfile = currentClient) => {
     setSelectedService(service);
     setPromoInput('');
-    setAppliedPromoCode('');
+    setAppliedPromo(null);
+    if (!clientProfile) setPendingBooking({ prestataire, service, preset });
     setReservationData(prev => ({
       ...prev,
-      ...(currentClient ? {
-        clientName: prev.clientName || currentClient.lastName,
-        clientFirstName: prev.clientFirstName || currentClient.firstName,
-        clientEmail: prev.clientEmail || currentClient.email,
-        clientPhone: prev.clientPhone || currentClient.phone
+      ...(clientProfile ? {
+        clientName: clientProfile.lastName,
+        clientFirstName: clientProfile.firstName,
+        clientEmail: clientProfile.email,
+        clientPhone: clientProfile.phone
       } : {}),
       selectedDate: preset ? preset.date : prev.selectedDate,
       selectedTime: preset ? preset.time : prev.selectedTime
     }));
+    if (prestataire) loadBookedSlots(prestataire.id);
     setPage('reservation');
   };
 
   // Reprendre rendez-vous chez un prestataire, éventuellement sur un créneau précis
   const rebook = (prestataire, service, preset = null) => {
     setSelectedPrestataire(prestataire);
-    startReservation(service, preset);
+    startReservation(service, preset, prestataire);
   };
 
   // ----- Rappels par e-mail (fonction serveur, voir api/reminders.js) -----
@@ -1220,30 +1199,19 @@ const RendezVousV6 = () => {
     });
     if (result && result.id) {
       updateReservation(prestataire.id, reservation.id, { reminderEmailId: result.id });
+      db.setReservationReminder(reservation.id, result.id).catch(e => console.error(e));
       return true;
     }
     return false;
   };
 
-  const cancelReminderEmail = (reservation) => {
-    if (reservation.reminderEmailId) callReminderApi({ action: 'cancel', id: reservation.reminderEmailId });
+  const cancelReminderEmail = (reminderEmailId) => {
+    if (reminderEmailId) callReminderApi({ action: 'cancel', id: reminderEmailId });
   };
 
-  // ----- Modification / annulation par le client -----
+  // ----- Modification / annulation par le client (règle des 24 h vérifiée aussi par la base) -----
   const canClientChange = (reservation) =>
     appointmentDate(reservation.date, reservation.time).getTime() - Date.now() > CHANGE_DEADLINE_HOURS * HOUR_MS;
-
-  const releasePromo = (reservation) => {
-    if (!reservation.promo) return;
-    const code = normalizeCode(reservation.promo.code);
-    setPromoCodes(prev => prev.map(pc => {
-      if (normalizeCode(pc.code) !== code) return pc;
-      const usedBy = [...(pc.usedBy || [])];
-      const index = usedBy.indexOf(reservation.clientId);
-      if (index !== -1) usedBy.splice(index, 1);
-      return { ...pc, usedCount: Math.max(0, (pc.usedCount || 0) - 1), usedBy };
-    }));
-  };
 
   const handleCancelReservation = (prestataire, reservation) => {
     if (!canClientChange(reservation)) {
@@ -1252,17 +1220,17 @@ const RendezVousV6 = () => {
     }
     askConfirm(
       `Annuler votre rendez-vous « ${reservation.serviceName} » du ${formatDateLong(reservation.date)} à ${normalizeTime(reservation.time)} ?`,
-      () => {
-        updateReservation(prestataire.id, reservation.id, {
-          status: 'cancelled',
-          cancelledAt: new Date().toISOString(),
-          cancelledBy: 'client',
-          reminderEmailId: null
-        });
-        releasePromo(reservation);
-        cancelReminderEmail(reservation);
-        setEditingReservation(null);
-        notify('Rendez-vous annulé. Le créneau est libéré.');
+      async () => {
+        try {
+          const result = await db.cancelReservation(reservation.id);
+          cancelReminderEmail(result && result.reminder_email_id);
+          setEditingReservation(null);
+          await reloadData();
+          loadBookedSlots(prestataire.id);
+          notify('Rendez-vous annulé. Le créneau est libéré.');
+        } catch (e) {
+          notify(e.message);
+        }
       }
     );
   };
@@ -1291,17 +1259,18 @@ const RendezVousV6 = () => {
       notify("Ce créneau n'est pas disponible");
       return;
     }
-    updateReservation(prestataire.id, reservation.id, {
-      date,
-      time,
-      modifiedAt: new Date().toISOString(),
-      previousSlot: { date: reservation.date, time: reservation.time },
-      reminderEmailId: null
-    });
-    cancelReminderEmail(reservation);
-    setEditingReservation(null);
-    notify(`Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`);
-    scheduleReminderEmail({ ...reservation, date, time }, prestataire);
+    try {
+      const result = await db.moveReservation(reservation.id, date, time);
+      cancelReminderEmail(result && result.reminder_email_id);
+      setEditingReservation(null);
+      await reloadData();
+      loadBookedSlots(prestataire.id);
+      notify(`Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`);
+      scheduleReminderEmail({ ...reservation, date, time }, prestataire);
+    } catch (e) {
+      notify(e.message);
+      loadBookedSlots(prestataire.id);
+    }
   };
 
   // ----- Suggestions selon les habitudes du client -----
@@ -1405,102 +1374,81 @@ const RendezVousV6 = () => {
     completeReservation();
   };
 
+  // Réservation enregistrée par la base : elle vérifie le créneau, recalcule le prix,
+  // applique le code promo et gère le parrainage
   const completeReservation = async () => {
-    // TODO: Send email via SendGrid
-    if (!selectedService || !selectedPrestataire) return;
-
-    // Le code promo est revérifié au moment de confirmer
-    let promo = null;
-    if (appliedPromoCode) {
-      const check = checkPromoCode(appliedPromoCode, {
+    if (!selectedService || !selectedPrestataire || !currentClient || bookingInProgress) return;
+    setBookingInProgress(true);
+    try {
+      const reservation = await db.bookReservation({
         prestataireId: selectedPrestataire.id,
         serviceId: selectedService.id,
-        clientId: currentClient ? currentClient.id : null
+        date: reservationData.selectedDate,
+        time: reservationData.selectedTime,
+        client: reservationData,
+        promoCode: appliedPromo ? appliedPromo.code : null
       });
-      if (check.error) {
-        notify(`Code promo refusé : ${check.error}`);
-        setAppliedPromoCode('');
-        return;
-      }
-      promo = check.promo;
+      const data = await reloadData();
+      const prestataireForReminder = (data && data.prestataires.find(p => p.id === selectedPrestataire.id)) || selectedPrestataire;
+      const confirmationId = reservation.id;
+      setLastConfirmation({ reservation, prestataire: prestataireForReminder, reminder: 'pending' });
+      setPage('reservation-confirmed');
+      scheduleReminderEmail(reservation, prestataireForReminder).then(scheduled => {
+        setLastConfirmation(prev => (prev && prev.reservation.id === confirmationId
+          ? { ...prev, reminder: scheduled ? 'scheduled' : 'unavailable' }
+          : prev));
+      });
+      setPromoInput('');
+      setAppliedPromo(null);
+      setReservationData({
+        clientName: '', clientFirstName: '', clientEmail: '', clientPhone: '',
+        selectedDate: '', selectedTime: '', paymentMethod: 'prestataire'
+      });
+    } catch (e) {
+      notify(e.message);
+      if (/réservé|disponible|horaires/i.test(e.message)) loadBookedSlots(selectedPrestataire.id);
+      if (/code promo/i.test(e.message)) setAppliedPromo(null);
+    } finally {
+      setBookingInProgress(false);
     }
-    const minPrice = selectedService.minPrice;
-    const maxPrice = selectedService.maxPrice;
-
-    const reservation = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      clientId: currentClient ? currentClient.id : null,
-      clientName: reservationData.clientName,
-      clientFirstName: reservationData.clientFirstName,
-      clientEmail: reservationData.clientEmail,
-      clientPhone: reservationData.clientPhone,
-      serviceId: selectedService.id,
-      serviceName: selectedService.name,
-      date: reservationData.selectedDate,
-      time: reservationData.selectedTime,
-      paymentMethod: 'prestataire',
-      status: 'pending',
-      price: { min: minPrice, max: maxPrice },
-      finalPrice: { min: applyDiscount(minPrice, promo), max: applyDiscount(maxPrice, promo) },
-      promo: promo
-        ? { code: promo.code, kind: promo.kind, type: promo.type, value: promo.value }
-        : null
-    };
-
-    setPrestataires(prev => prev.map(p =>
-      p.id === selectedPrestataire.id
-        ? { ...p, reservations: [...(p.reservations || []), reservation] }
-        : p
-    ));
-
-    const clientId = currentClient ? currentClient.id : null;
-    if (promo) {
-      setPromoCodes(prev => prev.map(pc => (pc.id === promo.id
-        ? {
-            ...pc,
-            usedCount: (pc.usedCount || 0) + 1,
-            usedBy: clientId != null ? [...(pc.usedBy || []), clientId] : (pc.usedBy || [])
-          }
-        : pc)));
-    }
-
-    // Parrainage : le parrain reçoit son bon à la première réservation du filleul
-    if (currentClient && currentClient.referredBy != null && !currentClient.sponsorRewarded) {
-      const sponsorExists = clients.some(c => c.id === currentClient.referredBy);
-      if (settings.referral.enabled && sponsorExists) {
-        const reward = createReferralReward(currentClient.referredBy, settings.referral.sponsorReward, 'PARRAIN');
-        setPromoCodes(prev => [...prev, reward]);
-      }
-      setClients(prev => prev.map(c => (c.id === currentClient.id ? { ...c, sponsorRewarded: true } : c)));
-    }
-
-    const prestataireForReminder = prestataires.find(p => p.id === selectedPrestataire.id) || selectedPrestataire;
-    const confirmationId = reservation.id;
-    setLastConfirmation({ reservation, prestataire: prestataireForReminder, reminder: 'pending' });
-    setPage('reservation-confirmed');
-    scheduleReminderEmail(reservation, prestataireForReminder).then(scheduled => {
-      setLastConfirmation(prev => (prev && prev.reservation.id === confirmationId
-        ? { ...prev, reminder: scheduled ? 'scheduled' : 'unavailable' }
-        : prev));
-    });
-    setPromoInput('');
-    setAppliedPromoCode('');
-    setReservationData({
-      clientName: '', clientFirstName: '', clientEmail: '', clientPhone: '',
-      selectedDate: '', selectedTime: '', paymentMethod: 'prestataire'
-    });
   };
 
-  const handleApprovePrestataire = (id) => {
-    // Aucun flux de vérification d'email n'existe encore : l'approbation admin
-    // vaut validation, sinon le prestataire ne pourrait jamais se connecter.
-    setPrestataires(prev => prev.map(p =>
-      p.id === id ? { ...p, approved: true, emailVerified: true } : p
-    ));
+  const handleApprovePrestataire = async (id) => {
+    // L'approbation par l'admin rend le salon visible sur le site
+    try {
+      await db.setPrestataireApproved(id, true);
+      await reloadData();
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
-  const handleRejectPrestataire = (id) => {
-    setPrestataires(prev => prev.filter(p => p.id !== id));
+  // Supprime le salon et, s'il en a un, le compte du prestataire
+  const handleRejectPrestataire = async (id) => {
+    const prestataire = prestataires.find(p => p.id === id);
+    try {
+      await db.deletePrestataire(id);
+      if (prestataire && prestataire.ownerId) {
+        try {
+          await db.adminUsers('delete_user', { userId: prestataire.ownerId });
+        } catch (e) {
+          notify(`Salon supprimé, mais pas le compte de connexion : ${e.message}`);
+        }
+      }
+      await reloadData();
+    } catch (e) {
+      notify(e.message);
+    }
+  };
+
+  const handleDeleteClientAccount = async (client) => {
+    try {
+      await db.adminUsers('delete_user', { userId: client.id });
+      await reloadData();
+      notify('Compte client supprimé');
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
   const handleAddService = () => {
@@ -1731,7 +1679,7 @@ const RendezVousV6 = () => {
         <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
         {/* Category Tabs on Right */}
         <div style={{display: 'flex', gap: '5px'}}>
-          {['Artisans', 'Beauté'].map(cat => (
+          {['Beauté', 'Artisans'].map(cat => (
             <button
               key={cat}
               style={{
@@ -1818,17 +1766,22 @@ const RendezVousV6 = () => {
   );
 
   const renderLoginPage = (role) => {
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
       e.preventDefault();
-      const result = handleLogin(loginForm.email, loginForm.password, role);
+      if (loginInProgress) return;
+      setLoginInProgress(true);
+      const result = await handleLogin(loginForm.email, loginForm.password);
+      setLoginInProgress(false);
       if (result.ok) {
         setLoginForm({ email: '', password: '' });
-      } else if (result.error === 'unknown-email') {
+      } else if (result.error === 'unknown-email' && role === 'client') {
         setUnknownEmail(loginForm.email.trim());
-      } else if (result.error === 'wrong-password') {
+      } else if (result.error === 'wrong-password' && role === 'client') {
         notify('Mot de passe incorrect. Vérifiez-le et réessayez.');
-      } else if (result.error === 'pending') {
-        notify("Votre compte est en attente de validation par l'administrateur.");
+      } else if (result.error === 'not-confirmed') {
+        notify("Confirmez d'abord votre adresse e-mail grâce au lien reçu par e-mail.");
+      } else if (result.error === 'network') {
+        notify(`Connexion impossible : ${result.message}`);
       } else {
         notify('Identifiants invalides');
       }
@@ -1876,10 +1829,23 @@ const RendezVousV6 = () => {
               style={styles.input}
               required
             />
-            <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
-              Se connecter
+            <button type="submit" disabled={loginInProgress} style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+              {loginInProgress ? 'Connexion…' : 'Se connecter'}
             </button>
           </form>
+          <p style={{textAlign: 'center', marginTop: '12px'}}>
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmail(loginForm.email.trim());
+                setForgotPasswordFrom(role === 'prestataire' ? 'login-prestataire' : 'login-client');
+                setPage('forgot-password');
+              }}
+              style={{background: 'none', border: 'none', padding: 0, color: '#000', textDecoration: 'underline', cursor: 'pointer', fontSize: '14px'}}
+            >
+              Mot de passe oublié ?
+            </button>
+          </p>
           {role === 'prestataire' && (
             <div style={{marginTop: '20px', textAlign: 'center', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
               <p style={{marginBottom: '10px', fontSize: '14px'}}>Pas encore inscrit?</p>
@@ -1958,7 +1924,7 @@ const RendezVousV6 = () => {
       setClientRegistration(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
       e.preventDefault();
       const { lastName, firstName, email, phone, password } = clientRegistration;
       if (!lastName.trim() || !firstName.trim() || !email.trim() || !phone.trim() || !password) {
@@ -1969,7 +1935,7 @@ const RendezVousV6 = () => {
         notify('Le mot de passe doit contenir au moins 6 caractères');
         return;
       }
-      if (handleRegisterClient(clientRegistration)) {
+      if (await handleRegisterClient(clientRegistration)) {
         setClientRegistration(EMPTY_CLIENT_REGISTRATION);
       }
     };
@@ -2190,7 +2156,7 @@ const RendezVousV6 = () => {
         <div style={{...styles.card, backgroundColor: '#fafafa'}}>
           <h3>Prendre un nouveau rendez-vous</h3>
           <div style={{marginBottom: '10px'}}>
-            {['Artisans', 'Beauté'].map(cat => (
+            {['Beauté', 'Artisans'].map(cat => (
               <button
                 key={cat}
                 style={{...styles.tab, ...(selectedCategory === cat ? styles.tabActive : {})}}
@@ -2240,6 +2206,71 @@ const RendezVousV6 = () => {
     );
   };
 
+  const renderForgotPasswordPage = () => (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+        <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage(forgotPasswordFrom)}>
+          Retour
+        </button>
+      </div>
+      <div style={{maxWidth: '400px', margin: '60px auto'}}>
+        <h2>Mot de passe oublié</h2>
+        <p style={{color: '#555', marginBottom: '15px'}}>
+          Saisissez l'adresse e-mail de votre compte : vous recevrez un lien pour choisir un nouveau mot de passe.
+        </p>
+        <form onSubmit={handleForgotPassword}>
+          <input
+            type="email"
+            value={forgotEmail}
+            onChange={(e) => setForgotEmail(e.target.value)}
+            placeholder="Email"
+            autoComplete="email"
+            style={styles.input}
+            required
+          />
+          <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+            Recevoir le lien
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const renderResetPasswordPage = () => (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+      </div>
+      <div style={{maxWidth: '400px', margin: '60px auto'}}>
+        <h2>Nouveau mot de passe</h2>
+        <form onSubmit={handleResetPassword}>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Nouveau mot de passe (6 caractères minimum)"
+            autoComplete="new-password"
+            style={styles.input}
+            required
+          />
+          <input
+            type="password"
+            value={newPasswordConfirm}
+            onChange={(e) => setNewPasswordConfirm(e.target.value)}
+            placeholder="Confirmez le mot de passe"
+            autoComplete="new-password"
+            style={styles.input}
+            required
+          />
+          <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+            Enregistrer le mot de passe
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
   const renderConfirmationPage = () => {
     if (!lastConfirmation) return null;
     const { reservation, prestataire, reminder } = lastConfirmation;
@@ -2288,7 +2319,7 @@ const RendezVousV6 = () => {
       setRegistrationData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
       e.preventDefault();
       const { name, email, password, city } = registrationData;
       if (!registrationData.category) {
@@ -2303,7 +2334,7 @@ const RendezVousV6 = () => {
         notify('Le mot de passe doit contenir au moins 6 caractères');
         return;
       }
-      if (handleRegisterPrestataire({ ...registrationData, name: name.trim(), city: city.trim() })) {
+      if (await handleRegisterPrestataire({ ...registrationData, name: name.trim(), city: city.trim() })) {
         setRegistrationData({ name: '', city: '', email: '', password: '', category: '' });
       }
     };
@@ -2449,8 +2480,6 @@ const RendezVousV6 = () => {
       serviceId: selectedService.id,
       clientId: currentClient ? currentClient.id : null
     };
-    const appliedCheck = appliedPromoCode ? checkPromoCode(appliedPromoCode, promoContext) : null;
-    const appliedPromo = appliedCheck && appliedCheck.promo ? appliedCheck.promo : null;
     const originalPrice = formatPriceRange(selectedService.minPrice, selectedService.maxPrice);
     const discountedPrice = appliedPromo
       ? formatPriceRange(applyDiscount(selectedService.minPrice, appliedPromo), applyDiscount(selectedService.maxPrice, appliedPromo))
@@ -2460,15 +2489,55 @@ const RendezVousV6 = () => {
       ? promoCodes.filter(pc => pc.clientId === currentClient.id && !checkPromoCode(pc.code, promoContext).error)
       : [];
 
-    const applyPromo = (code) => {
-      const check = checkPromoCode(code, promoContext);
-      if (check.error) {
-        notify(check.error);
-        return;
+    const applyPromo = async (code) => {
+      try {
+        const check = await db.checkPromo(code, selectedPrestataire.id, selectedService.id);
+        if (check.error) {
+          notify(check.error);
+          return;
+        }
+        const promo = { ...check.promo, value: Number(check.promo.value) };
+        setAppliedPromo(promo);
+        setPromoInput(promo.code);
+      } catch (e) {
+        notify(e.message);
       }
-      setAppliedPromoCode(check.promo.code);
-      setPromoInput(check.promo.code);
     };
+
+    // Réserver nécessite un compte client
+    if (!currentClient) {
+      return (
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('prestataire-detail')}>
+              Retour
+            </button>
+          </div>
+          <div style={{maxWidth: '480px', margin: '40px auto', textAlign: 'center'}}>
+            <h2>Réservation : {selectedService.name}</h2>
+            <p>Chez <strong>{selectedPrestataire.name}</strong></p>
+            <div style={{...styles.card, marginTop: '20px'}}>
+              {currentUser ? (
+                <p>Les réservations se font avec un compte client. Déconnectez-vous puis connectez-vous avec votre compte client.</p>
+              ) : (
+                <>
+                  <p style={{marginBottom: '15px'}}>Pour réserver, connectez-vous ou créez votre compte client : vous pourrez ensuite suivre, déplacer ou annuler vos rendez-vous.</p>
+                  <div style={{display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap'}}>
+                    <button style={{...styles.btn, ...styles.btnPrimary}} onClick={() => setPage('login-client')}>
+                      Me connecter
+                    </button>
+                    <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setPage('register-client')}>
+                      Créer mon compte
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div style={styles.container}>
@@ -2571,7 +2640,7 @@ const RendezVousV6 = () => {
                 <button
                   type="button"
                   style={{...styles.btn, ...styles.btnSecondary}}
-                  onClick={() => { setAppliedPromoCode(''); setPromoInput(''); }}
+                  onClick={() => { setAppliedPromo(null); setPromoInput(''); }}
                 >
                   Retirer
                 </button>
@@ -2619,8 +2688,8 @@ const RendezVousV6 = () => {
             </p>
             <p style={{fontSize: '12px', color: '#666', marginBottom: '20px'}}>Paiement en ligne : bientôt disponible.</p>
 
-            <button type="submit" style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
-              Confirmer la réservation
+            <button type="submit" disabled={bookingInProgress} style={{...styles.btn, ...styles.btnPrimary, width: '100%'}}>
+              {bookingInProgress ? 'Réservation en cours…' : 'Confirmer la réservation'}
             </button>
           </form>
         </div>
@@ -2681,6 +2750,13 @@ const RendezVousV6 = () => {
             </button>
           </div>
         </div>
+
+        {!prestataire.approved && (
+          <div style={{...styles.card, backgroundColor: '#fff3cd', borderColor: '#ffe08a'}}>
+            <strong>Compte en attente de validation.</strong> Vous pouvez déjà préparer vos prestations et vos horaires :
+            votre salon sera visible sur le site dès qu'un administrateur l'aura validé.
+          </div>
+        )}
 
         {renderTomorrowAppointments(prestataire)}
 
@@ -3248,12 +3324,12 @@ const RendezVousV6 = () => {
           { name: 'name', label: 'Nom du salon', type: 'text' },
           { name: 'category', label: 'Catégorie', type: 'select', options: ['Beauté', 'Artisans'] },
           { name: 'city', label: 'Ville', type: 'text' },
-          { name: 'email', label: 'Email', type: 'email' }
+          { name: 'email', label: isEdit ? 'Email de contact' : 'Email (connexion)', type: 'email' }
         ]
       : [
           { name: 'lastName', label: 'Nom', type: 'text' },
           { name: 'firstName', label: 'Prénom', type: 'text' },
-          { name: 'email', label: 'Email', type: 'email' },
+          { name: 'email', label: isEdit ? 'Email (non modifiable ici)' : 'Email (connexion)', type: 'email', readOnly: isEdit },
           { name: 'phone', label: 'Téléphone', type: 'tel' }
         ];
 
@@ -3271,15 +3347,28 @@ const RendezVousV6 = () => {
                   {field.options.map(option => <option key={option}>{option}</option>)}
                 </select>
               ) : (
-                <input type={field.type} value={values[field.name]} onChange={update(field.name)} style={styles.input} />
+                <input
+                  type={field.type}
+                  value={values[field.name]}
+                  onChange={update(field.name)}
+                  readOnly={field.readOnly}
+                  style={{...styles.input, ...(field.readOnly ? { backgroundColor: '#f3f3f3', color: '#666' } : {})}}
+                />
               )}
             </div>
           ))}
-          <div>
-            <label>{isEdit ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe provisoire'}</label>
-            <input type="text" value={values.password} onChange={update('password')} placeholder="Minimum 6 caractères" style={styles.input} />
-          </div>
+          {!isEdit && (
+            <div>
+              <label>Mot de passe provisoire</label>
+              <input type="text" value={values.password} onChange={update('password')} placeholder="Minimum 6 caractères" style={styles.input} />
+            </div>
+          )}
         </div>
+        {isEdit && (
+          <p style={{fontSize: '13px', color: '#666'}}>
+            Mot de passe oublié ? La personne peut le réinitialiser elle-même avec « Mot de passe oublié ? » sur la page de connexion.
+          </p>
+        )}
         {!isEdit && type === 'prestataire' && (
           <p style={{fontSize: '13px', color: '#666'}}>Le prestataire est directement approuvé et visible sur le site dès qu'il a enregistré ses prestations.</p>
         )}
@@ -3554,9 +3643,7 @@ const RendezVousV6 = () => {
                     <button
                       style={{...styles.btn, ...styles.btnDanger, width: '100%', marginTop: '10px'}}
                       onClick={() => {
-                        askConfirm(`Supprimer le compte de ${c.firstName} ${c.lastName} ?`, () => {
-                          setClients(prev => prev.filter(client => client.id !== c.id));
-                        });
+                        askConfirm(`Supprimer le compte de ${c.firstName} ${c.lastName} ?`, () => handleDeleteClientAccount(c));
                       }}
                     >
                       Supprimer le compte
@@ -3577,6 +3664,23 @@ const RendezVousV6 = () => {
 
   // Routing
   const renderPage = () => {
+    if (!isSupabaseConfigured) {
+      return (
+        <div style={{...styles.container, textAlign: 'center', paddingTop: '80px'}}>
+          <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+          <h2 style={{marginTop: '20px'}}>Site en cours de configuration</h2>
+          <p>La base de données n'est pas encore reliée (variables REACT_APP_SUPABASE_URL et REACT_APP_SUPABASE_ANON_KEY).</p>
+        </div>
+      );
+    }
+    if (!authReady) {
+      return (
+        <div style={{...styles.container, textAlign: 'center', paddingTop: '80px'}}>
+          <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
+          <p style={{marginTop: '20px', color: '#666'}}>Chargement…</p>
+        </div>
+      );
+    }
     switch (page) {
       case 'home': return renderHomePage();
       case 'login-client': return renderLoginPage('client');
@@ -3589,6 +3693,8 @@ const RendezVousV6 = () => {
       case 'reservation-confirmed': return renderConfirmationPage() || renderHomePage();
       case 'dashboard': return renderDashboardPage() || renderHomePage();
       case 'admin': return renderAdminPage() || renderHomePage();
+      case 'forgot-password': return renderForgotPasswordPage();
+      case 'reset-password': return renderResetPasswordPage();
       default: return renderHomePage();
     }
   };
