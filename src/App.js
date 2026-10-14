@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE } from './supabaseClient';
+import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE, MISSING_SUPABASE_VARIABLES } from './supabaseClient';
 import * as db from './dataService';
 
 // Logo servi comme fichier statique (public/logo-rendez-vous.jpg), mis en cache par le navigateur
@@ -3669,7 +3669,11 @@ const RendezVousV6 = () => {
         <div style={{...styles.container, textAlign: 'center', paddingTop: '80px'}}>
           <img src={LOGO_SRC} alt="Rendez Vous" style={styles.logo} />
           <h2 style={{marginTop: '20px'}}>Site en cours de configuration</h2>
-          <p>La base de données n'est pas encore reliée (variables REACT_APP_SUPABASE_URL et REACT_APP_SUPABASE_ANON_KEY).</p>
+          <p>La base de données n'est pas encore reliée.</p>
+          <p style={{color: '#666', fontSize: '14px'}}>
+            Variable(s) absente(s) lors de la construction du site : {MISSING_SUPABASE_VARIABLES.join(', ')}.
+            Après l'avoir ajoutée dans Vercel, il faut redéployer.
+          </p>
         </div>
       );
     }

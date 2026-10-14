@@ -7,6 +7,12 @@ const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
+// Noms des variables absentes au moment de la construction du site (affichés si le site n'est pas configuré)
+export const MISSING_SUPABASE_VARIABLES = [
+  !SUPABASE_URL && 'REACT_APP_SUPABASE_URL',
+  !SUPABASE_ANON_KEY && 'REACT_APP_SUPABASE_ANON_KEY'
+].filter(Boolean);
+
 // Type de lien e-mail ouvert (« signup » = confirmation d'adresse, « recovery » = mot de passe oublié),
 // lu avant que Supabase ne nettoie l'adresse de la page
 export const INITIAL_AUTH_LINK_TYPE = typeof window !== 'undefined'
