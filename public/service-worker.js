@@ -1,10 +1,10 @@
 /* Service worker de Rendez Vous : rend l'application installable, plus rapide au démarrage
-   et utilisable hors connexion (les données sont de toute façon stockées sur l'appareil).
+   et affichable hors connexion (les données, elles, viennent de la base Supabase : il faut internet).
    - Pages : réseau d'abord (toujours la dernière version en ligne), cache si hors connexion.
    - Fichiers statiques (JS, CSS, images, polices) : cache d'abord, mis à jour en arrière-plan.
-   - /api/ (rappels par e-mail) : jamais mis en cache. */
+   - /api/ (fonctions serveur) et la base Supabase (autre domaine) : jamais mis en cache. */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE = `rendez-vous-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `rendez-vous-runtime-${CACHE_VERSION}`;
 const RUNTIME_MAX_ENTRIES = 80;
