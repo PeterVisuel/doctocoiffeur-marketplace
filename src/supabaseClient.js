@@ -2,8 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 
 // Adresse et clé publique du projet Supabase (variables d'environnement Vercel).
 // La clé « anon » est faite pour être publique : la sécurité repose sur les règles RLS de la base.
-const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
+// Adresse nettoyée : on accepte aussi une adresse saisie avec « /rest/v1 » ou un « / » final
+const SUPABASE_URL = (process.env.REACT_APP_SUPABASE_URL || '').trim().replace(/\/+$/, '').replace(/\/(rest|auth)\/v1$/, '');
+const SUPABASE_ANON_KEY = (process.env.REACT_APP_SUPABASE_ANON_KEY || '').trim();
 
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
