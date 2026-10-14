@@ -1599,7 +1599,7 @@ const RendezVousV6 = () => {
     const placeholders = {
       ville: 'Entrez une ville...',
       nom: 'Entrez un nom...',
-      prestation: 'Entrez une prestation (ex : coloration)...'
+      prestation: 'Entrez un domaine (ex : coloration)...'
     };
     return (
       <div style={{...styles.searchContainer, maxWidth: '800px', margin: variant === 'dark' ? '0 auto' : '0 0 20px'}}>
@@ -1611,7 +1611,7 @@ const RendezVousV6 = () => {
         >
           <option value="ville">Par ville</option>
           <option value="nom">Par nom</option>
-          <option value="prestation">Par prestation</option>
+          <option value="prestation">Par domaine</option>
         </select>
         <input
           type="text"
@@ -1643,7 +1643,7 @@ const RendezVousV6 = () => {
     return (
       <div style={styles.grid}>
         {searchResults.map(p => {
-          // Recherche par prestation : les prestations trouvées sont affichées en premier
+          // Recherche « Par domaine » (dans les noms de prestations) : les prestations trouvées sont affichées en premier
           const services = highlight
             ? [...p.services].sort((a, b) => Number(serviceMatches(b, highlight)) - Number(serviceMatches(a, highlight)))
             : p.services;

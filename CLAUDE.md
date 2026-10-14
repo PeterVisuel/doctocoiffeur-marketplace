@@ -65,7 +65,8 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   le parrain après la première réservation du filleul. Réductions réglées sur place, à la charge de la plateforme.
 - **Design** : rester en **noir et blanc** (police Nunito, coins arrondis, boutons en pastille, ombres légères).
 - **Accueil** : titre « Trouvez votre prochain rendez-vous, peu importe le domaine : c'est ici ! ». Recherche par ville,
-  par nom ou **par prestation** (sans tenir compte des accents ; les prestations trouvées sont mises en avant).
+  par nom ou **par domaine** (libellé « Par domaine » : recherche dans les noms de prestations, sans tenir compte des
+  accents ; les prestations trouvées sont mises en avant).
 - **Connexion client** : on distingue « e-mail inconnu » (fenêtre « Adresse e-mail inconnue » avec « Créer mon compte »,
   e-mail pré-rempli, ou « Corriger l'adresse ») et « Mot de passe incorrect. Vérifiez-le et réessayez. ».
 - **Page Connexion Prestataire** : encadré « Vous souhaitez élargir votre activité ? « Rendez Vous » est la plateforme
