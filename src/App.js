@@ -4,6 +4,8 @@ import * as db from './dataService';
 
 // Logo servi comme fichier statique (public/logo-rendez-vous.jpg), mis en cache par le navigateur
 const LOGO_SRC = `${process.env.PUBLIC_URL}/logo-rendez-vous.jpg`;
+// Mémorise (dans ce navigateur) que l'application a été installée, pour ne plus proposer le lien
+const APP_INSTALLED_KEY = 'rendez_vous_app_installed';
 
 // Styles globaux : survols, focus et typographie (impossible en style inline)
 const GLOBAL_CSS = `
@@ -318,23 +320,35 @@ const RendezVousV6 = () => {
   // ----- Application installable (PWA) -----
   // Android / ordinateur (Chrome, Edge…) : le navigateur fournit une invite d'installation.
   // iPhone / iPad : pas d'invite, on explique « Partager › Sur l'écran d'accueil ».
+  // Android sans invite (Firefox, ou invite pas encore reçue) : on explique « Menu › Installer ».
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(() =>
-    typeof window !== 'undefined' && (
-      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-      || window.navigator.standalone === true
-    ));
+  const [isInstalled, setIsInstalled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+    if (standalone) {
+      try { window.localStorage.setItem(APP_INSTALLED_KEY, '1'); } catch (e) { /* stockage indisponible */ }
+      return true;
+    }
+    // Application déjà installée depuis ce navigateur : on ne propose plus le lien dans l'onglet
+    try { return window.localStorage.getItem(APP_INSTALLED_KEY) === '1'; } catch (e) { return false; }
+  });
   const isIOS = typeof navigator !== 'undefined'
     && (/iphone|ipad|ipod/i.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
 
   useEffect(() => {
     const onBeforeInstall = (e) => {
       e.preventDefault();
+      // Le navigateur propose l'installation : l'application n'est donc pas (ou plus) installée
+      try { window.localStorage.removeItem(APP_INSTALLED_KEY); } catch (err) { /* stockage indisponible */ }
+      setIsInstalled(false);
       setInstallPrompt(e);
     };
     const onInstalled = () => {
+      try { window.localStorage.setItem(APP_INSTALLED_KEY, '1'); } catch (e) { /* stockage indisponible */ }
       setIsInstalled(true);
       setInstallPrompt(null);
     };
@@ -357,7 +371,7 @@ const RendezVousV6 = () => {
     }
   };
 
-  const canOfferInstall = !isInstalled && (Boolean(installPrompt) || isIOS);
+  const canOfferInstall = !isInstalled && (Boolean(installPrompt) || isIOS || isAndroid);
   const [page, setPage] = useState('home');
   const [prestataires, setPrestataires] = useState([]);
   const [clients, setClients] = useState([]);
@@ -3759,12 +3773,20 @@ const RendezVousV6 = () => {
               <img src={`${process.env.PUBLIC_URL}/apple-touch-icon.png`} alt="" width="72" height="72" style={{borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.12)'}} />
               <h3 id="install-help-title" style={{marginTop: '12px'}}>Installer Rendez Vous</h3>
             </div>
-            <ol style={{paddingLeft: '20px', lineHeight: 1.7, marginBottom: '20px'}}>
-              <li>Ouvrez ce site dans <strong>Safari</strong>.</li>
-              <li>Touchez le bouton <strong>Partager</strong> (le carré avec une flèche vers le haut).</li>
-              <li>Choisissez <strong>« Sur l'écran d'accueil »</strong>.</li>
-              <li>Touchez <strong>« Ajouter »</strong> : l'icône Rendez Vous apparaît avec vos applications.</li>
-            </ol>
+            {isIOS ? (
+              <ol style={{paddingLeft: '20px', lineHeight: 1.7, marginBottom: '20px'}}>
+                <li>Ouvrez ce site dans <strong>Safari</strong>.</li>
+                <li>Touchez le bouton <strong>Partager</strong> (le carré avec une flèche vers le haut).</li>
+                <li>Choisissez <strong>« Sur l'écran d'accueil »</strong>.</li>
+                <li>Touchez <strong>« Ajouter »</strong> : l'icône Rendez Vous apparaît avec vos applications.</li>
+              </ol>
+            ) : (
+              <ol style={{paddingLeft: '20px', lineHeight: 1.7, marginBottom: '20px'}}>
+                <li>Ouvrez le <strong>menu du navigateur</strong> : les trois points <strong>⋮</strong> (ou les trois traits <strong>≡</strong>), en haut ou en bas de l'écran.</li>
+                <li>Choisissez <strong>« Installer l'application »</strong> ou <strong>« Ajouter à l'écran d'accueil »</strong>.</li>
+                <li>Confirmez avec <strong>« Installer »</strong> ou <strong>« Ajouter »</strong> : l'icône Rendez Vous apparaît avec vos applications.</li>
+              </ol>
+            )}
             <div style={{textAlign: 'center'}}>
               <button autoFocus style={{...styles.btn, ...styles.btnPrimary}} onClick={() => setShowInstallHelp(false)}>
                 J'ai compris

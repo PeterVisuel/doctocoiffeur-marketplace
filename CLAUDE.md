@@ -106,7 +106,8 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - **Application installable** : icône = logo Rendez Vous sur fond blanc. Sur l'accueil, simple lien discret
   « 📲 Installer l'application Rendez Vous » sous le pied de page (pas un troisième bouton à côté des deux connexions),
   visible seulement si l'installation est possible : invite du navigateur sur Android / ordinateur, fenêtre
-  d'explication sur iPhone (Partager › Sur l'écran d'accueil), masqué une fois l'application installée.
+  d'explication sur iPhone (Partager › Sur l'écran d'accueil) et sur Android sans invite, par ex. Firefox
+  (Menu ⋮ › Installer l'application), masqué une fois l'application installée (mémorisé dans le navigateur).
 
 ## Historique
 
@@ -123,6 +124,7 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #8 : base de données Supabase (comptes, réservations, codes promo partagés entre appareils, règles vérifiées par
   la base), mot de passe oublié, compte obligatoire pour réserver, Beauté avant Artisans, création de comptes par
   l'admin via `api/admin-users.js`.
+- PR #9 : aide à l'installation sur Android quand le navigateur ne propose pas d'invite (Firefox…).
 
 ## Prochaines étapes envisagées
 
