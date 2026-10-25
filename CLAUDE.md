@@ -128,6 +128,21 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 
 ## Prochaines étapes envisagées
 
+Ordre convenu (octobre 2026), le nom de domaine étant mis de côté pour l'instant :
+- **PR 10** : mentions légales, politique de confidentialité (avec une rubrique « Cookies et stockage »), conditions
+  d'utilisation, bouton « Supprimer mon compte » (client et prestataire), police Nunito hébergée sur le site au lieu
+  de Google Fonts (`public/index.html`). Attend de l'utilisatrice : nom de l'éditeur, adresse, e-mail, SIRET éventuel.
+- **Cookies** : pas de bandeau nécessaire tant que le site n'a ni statistiques ni publicité (seuls stockages : session
+  Supabase et `APP_INSTALLED_KEY`, strictement nécessaires / de confort). Statistiques un jour → bandeau
+  Accepter / Refuser à égalité, ou statistiques Vercel sans cookies.
+- **PR 11** : protéger le code (LICENSE « Tous droits réservés », `GENERATE_SOURCEMAP=false`).
+- Le nom de domaine (idées : rendezvous-app.fr, monrendezvous.fr, rendezvous-ici.fr ; achat conseillé via Vercel ›
+  Domains) conditionne Resend, donc tous les e-mails.
+- L'utilisatrice n'est pas développeuse : la guider pas à pas, clic par clic, sans jargon. Un récapitulatif du
+  projet (document Claude) est tenu à jour à sa demande (« mets à jour le récap »).
+
+Liste de fond :
+
 1. ~~Base de données partagée~~ et 2. ~~authentification côté serveur~~ : faits (PR #8, Supabase).
    Reste : SMTP personnalisé (Resend) pour les e-mails Supabase, puis activer la confirmation d'e-mail.
 3. Applications App Store / Google Play avec Capacitor (même code React), notifications push pour les rappels,
