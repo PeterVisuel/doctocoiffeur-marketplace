@@ -78,3 +78,18 @@ vérifié. Ensuite seulement, réactiver « Confirm email » si souhaité.
 - [ ] Admin : approuver le salon, activer un code promo, régler le parrainage, créer / supprimer un compte (étape 4).
 - [ ] Mot de passe oublié (avec une adresse membre de l'équipe Supabase tant que le SMTP n'est pas configuré).
 - [ ] Modifier / annuler un rendez-vous (jusqu'à 24 h avant).
+
+## 8. Stockage des photos (PR 10)
+
+À faire une fois, avant d'ajouter des photos :
+
+1. Supabase › **SQL Editor** › **New query**.
+2. Copier tout le contenu de `supabase/migrations/20261109000000_photos.sql`, le coller, puis **Run**.
+3. Résultat attendu : « Success. No rows returned ». Dans **Storage**, un espace **photos** apparaît (public).
+
+Les photos sont réduites par le site avant l'envoi (1280 pixels au plus grand côté, environ 200 Ko), 10 au maximum par
+prestation. Elles sont visibles par tous sur la fiche du salon ; seul le prestataire (ou un admin) peut en ajouter ou en
+supprimer. L'offre gratuite de Supabase contient 1 Go de fichiers, soit environ 5 000 photos.
+
+Si le script affiche une erreur sur `storage.objects` (droits), créer les règles à la main : **Storage › Policies ›
+photos › New policy**, et prévenir Claude avec une capture d'écran.

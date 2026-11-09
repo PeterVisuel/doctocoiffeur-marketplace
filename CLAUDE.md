@@ -25,6 +25,14 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
     une ligne `prestataires` (`owner_id`).
   - Admins : désignés en SQL (`update public.profiles set role = 'admin' where email in (…)`), plusieurs possibles.
     Plus d'identifiants admin dans le code.
+- **Photos des prestations** (PR #10) : réduites dans le navigateur avant l'envoi (`src/imageUtils.js` :
+  1280 px au plus grand côté, JPEG qualité 0,8, orientation EXIF respectée), envoyées dans Supabase Storage, espace
+  public `photos`, un dossier par prestataire (`photos/<id prestataire>/<uuid>.jpg`). Migration
+  `supabase/migrations/20261109000000_photos.sql` (bucket 2 Mo max, règles : ajout / suppression par le propriétaire
+  ou un admin via `can_manage_prestataire_photos`). `services[].photos` contient les adresses publiques ; les
+  anciennes photos intégrées (`data:` base64) restent affichées. 10 photos max par prestation
+  (`MAX_PHOTOS_PER_SERVICE`). Les photos sont supprimées du stockage avec la photo, la prestation ou le prestataire
+  (`db.deletePhotos`). Elles sont visibles par les clients sur la fiche du salon (miniatures + agrandissement).
 - `api/admin-users.js` (fonction Vercel) : l'admin crée / supprime des comptes avec la clé `SUPABASE_SERVICE_ROLE_KEY`
   (variable Vercel de type **Secret**, jamais dans le code ni dans le navigateur). Sans elle : 501 et message à l'écran.
 - Guide de mise en service : `docs/SUPABASE.md`.
@@ -125,19 +133,24 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   la base), mot de passe oublié, compte obligatoire pour réserver, Beauté avant Artisans, création de comptes par
   l'admin via `api/admin-users.js`.
 - PR #9 : aide à l'installation sur Android quand le navigateur ne propose pas d'invite (Firefox…).
+- PR #10 : photos réduites automatiquement et rangées dans Supabase Storage, photos visibles par les clients.
 
 ## Prochaines étapes envisagées
 
 Ordre convenu (octobre 2026), le nom de domaine étant mis de côté pour l'instant :
-- **PR 10** : mentions légales, politique de confidentialité (avec une rubrique « Cookies et stockage »), conditions
+- ~~Photos réduites~~ : fait (PR #10).
+- **PR suivante (pages légales, après relecture par l'utilisatrice)** : mentions légales, politique de confidentialité (avec une rubrique « Cookies et stockage »), conditions
   d'utilisation, bouton « Supprimer mon compte » (client et prestataire), police Nunito hébergée sur le site au lieu
   de Google Fonts (`public/index.html`). Attend de l'utilisatrice : nom de l'éditeur, adresse, e-mail, SIRET éventuel.
 - **Cookies** : pas de bandeau nécessaire tant que le site n'a ni statistiques ni publicité (seuls stockages : session
   Supabase et `APP_INSTALLED_KEY`, strictement nécessaires / de confort). Statistiques un jour → bandeau
   Accepter / Refuser à égalité, ou statistiques Vercel sans cookies.
-- **PR 11** : protéger le code (LICENSE « Tous droits réservés », `GENERATE_SOURCEMAP=false`).
-- Le nom de domaine (idées : rendezvous-app.fr, monrendezvous.fr, rendezvous-ici.fr ; achat conseillé via Vercel ›
-  Domains) conditionne Resend, donc tous les e-mails.
+- **Ensuite** : protéger le code (LICENSE « Tous droits réservés », `GENERATE_SOURCEMAP=false`).
+- **Nom de domaine** : choisi chez **OVH** (nom seul, sans hébergement OVH) ; le site reste hébergé chez Vercel
+  (enregistrements DNS à recopier dans OVH). Conditionne Resend, donc tous les e-mails. Idées : rendezvous-app.fr,
+  monrendezvous.fr, rendezvous-ici.fr.
+- **Offres payantes** : Vercel Pro (l'offre Hobby est réservée à un usage non commercial) et Supabase Pro (pas de
+  mise en pause, sauvegardes) le jour de l'ouverture au public, après la liste « avant le go » du récapitulatif.
 - L'utilisatrice n'est pas développeuse : la guider pas à pas, clic par clic, sans jargon. Un récapitulatif du
   projet (document Claude) est tenu à jour à sa demande (« mets à jour le récap »).
 

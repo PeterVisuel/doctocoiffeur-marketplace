@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE, MISSING_SUPABASE_VARIABLES } from './supabaseClient';
 import * as db from './dataService';
+import { compressImage, formatSize } from './imageUtils';
 
 // Logo servi comme fichier statique (public/logo-rendez-vous.jpg), mis en cache par le navigateur
 const LOGO_SRC = `${process.env.PUBLIC_URL}/logo-rendez-vous.jpg`;
+// Photos par prestation (chacune réduite à environ 200 Ko avant l'envoi)
+const MAX_PHOTOS_PER_SERVICE = 10;
 // Mémorise (dans ce navigateur) que l'application a été installée, pour ne plus proposer le lien
 const APP_INSTALLED_KEY = 'rendez_vous_app_installed';
 
@@ -434,6 +437,10 @@ const RendezVousV6 = () => {
   const [newServiceMaxPrice, setNewServiceMaxPrice] = useState('');
   const [newPhotosForService, setNewPhotosForService] = useState([]);
   const [selectedServiceForPhotos, setSelectedServiceForPhotos] = useState(null);
+  // Photos en cours : '' (rien), 'reduction' (réduction dans le navigateur) ou 'envoi' (vers le stockage)
+  const [photoBusy, setPhotoBusy] = useState('');
+  // Photo agrandie sur la fiche d'un salon : { photos, index, title }
+  const [viewedPhotos, setViewedPhotos] = useState(null);
   const [serviceSavedMessage, setServiceSavedMessage] = useState('');
 
   // Search state
@@ -1037,7 +1044,7 @@ const RendezVousV6 = () => {
     setEditingServiceId(null);
     setEditingSchedule(false);
     setSelectedServiceForPhotos(null);
-    setNewPhotosForService([]);
+    clearNewPhotos();
     setAdminForm(null);
     setReferralDraft(null);
     setPromoForm(EMPTY_PROMO_FORM);
@@ -1442,6 +1449,7 @@ const RendezVousV6 = () => {
     const prestataire = prestataires.find(p => p.id === id);
     try {
       await db.deletePrestataire(id);
+      if (prestataire) db.deletePhotos(prestataire.services.flatMap(s => s.photos || []));
       if (prestataire && prestataire.ownerId) {
         try {
           await db.adminUsers('delete_user', { userId: prestataire.ownerId });
@@ -1499,56 +1507,104 @@ const RendezVousV6 = () => {
 
   const handleDeleteService = (serviceId) => {
     askConfirm('Supprimer cette prestation ?', () => {
+      const removed = currentPrestataire && currentPrestataire.services.find(s => s.id === serviceId);
       updateCurrentPrestataire(p => ({
         ...p,
         services: p.services.filter(s => s.id !== serviceId)
-      }));
+      })).then(saved => {
+        if (saved && removed) db.deletePhotos(removed.photos);
+      });
       // La fenêtre de confirmation bloque toute autre action : ces valeurs sont à jour
       if (editingServiceId === serviceId) setEditingServiceId(null);
       if (selectedServiceForPhotos === serviceId) {
         setSelectedServiceForPhotos(null);
-        setNewPhotosForService([]);
+        clearNewPhotos();
       }
     });
   };
 
-  const handlePhotoUploadForService = (e) => {
-    const files = Array.from(e.target.files || []).filter(file => file.type.startsWith('image/'));
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setNewPhotosForService(prev => [...prev, ev.target.result]);
-      };
-      reader.readAsDataURL(file);
+  // Photos choisies : réduites tout de suite dans le navigateur (aperçu + taille), envoyées au clic sur « Ajouter »
+  const handlePhotoUploadForService = async (e) => {
+    const input = e.target;
+    const files = Array.from(input.files || []).filter(file => file.type.startsWith('image/'));
+    input.value = '';
+    if (files.length === 0) return;
+    const service = currentPrestataire && currentPrestataire.services.find(s => s.id === selectedServiceForPhotos);
+    const room = MAX_PHOTOS_PER_SERVICE - (service ? service.photos.length : 0) - newPhotosForService.length;
+    if (room <= 0) {
+      notify(`${MAX_PHOTOS_PER_SERVICE} photos maximum par prestation`);
+      return;
+    }
+    if (files.length > room) notify(`${MAX_PHOTOS_PER_SERVICE} photos maximum par prestation : seules les ${room} premières sont gardées`);
+    setPhotoBusy('reduction');
+    const reduced = [];
+    let failed = 0;
+    for (const file of files.slice(0, room)) {
+      try {
+        const blob = await compressImage(file);
+        reduced.push({ blob, preview: URL.createObjectURL(blob), originalSize: file.size });
+      } catch (err) {
+        failed += 1;
+      }
+    }
+    setPhotoBusy('');
+    if (failed > 0) notify(`${failed} photo(s) n'ont pas pu être lues (format non pris en charge) : essayez en JPEG ou PNG`);
+    setNewPhotosForService(prev => [...prev, ...reduced]);
+  };
+
+  const clearNewPhotos = () => {
+    setNewPhotosForService(prev => {
+      prev.forEach(photo => URL.revokeObjectURL(photo.preview));
+      return [];
     });
   };
 
-  const handleAddPhotosToService = () => {
-    if (!selectedServiceForPhotos || newPhotosForService.length === 0) return;
-
-    const photosToAdd = newPhotosForService;
-    updateCurrentPrestataire(p => ({
+  const handleAddPhotosToService = async () => {
+    if (!selectedServiceForPhotos || newPhotosForService.length === 0 || !currentPrestataire || photoBusy) return;
+    const serviceId = selectedServiceForPhotos;
+    const prestataireId = currentPrestataire.id;
+    setPhotoBusy('envoi');
+    const uploaded = [];
+    try {
+      for (const photo of newPhotosForService) {
+        uploaded.push(await db.uploadServicePhoto(prestataireId, photo.blob));
+      }
+    } catch (err) {
+      setPhotoBusy('');
+      notify(err.message);
+      db.deletePhotos(uploaded);
+      return;
+    }
+    const saved = await updateCurrentPrestataire(p => ({
       ...p,
       services: p.services.map(s =>
-        s.id === selectedServiceForPhotos
-          ? { ...s, photos: [...(s.photos || []), ...photosToAdd] }
-          : s
+        s.id === serviceId ? { ...s, photos: [...(s.photos || []), ...uploaded] } : s
       )
     }));
-
-    setNewPhotosForService([]);
+    setPhotoBusy('');
+    if (!saved) {
+      db.deletePhotos(uploaded);
+      return;
+    }
+    notify(uploaded.length > 1 ? `${uploaded.length} photos ajoutées` : 'Photo ajoutée');
+    clearNewPhotos();
     setSelectedServiceForPhotos(null);
   };
 
   const handleDeleteServicePhoto = (serviceId, photoIndex) => {
-    updateCurrentPrestataire(p => ({
-      ...p,
-      services: p.services.map(s =>
-        s.id === serviceId
-          ? { ...s, photos: (s.photos || []).filter((_, i) => i !== photoIndex) }
-          : s
-      )
-    }));
+    askConfirm('Supprimer cette photo ?', async () => {
+      const service = currentPrestataire && currentPrestataire.services.find(s => s.id === serviceId);
+      const photo = service && service.photos[photoIndex];
+      const saved = await updateCurrentPrestataire(p => ({
+        ...p,
+        services: p.services.map(s =>
+          s.id === serviceId
+            ? { ...s, photos: (s.photos || []).filter((_, i) => i !== photoIndex) }
+            : s
+        )
+      }));
+      if (saved && photo) db.deletePhotos([photo]);
+    });
   };
 
   // Pages
@@ -2457,6 +2513,26 @@ const RendezVousV6 = () => {
           {selectedPrestataire.services.map(service => (
             <div key={service.id} style={styles.card}>
               <h4>{service.name}</h4>
+              {service.photos.length > 0 && (
+                <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '8px 0'}}>
+                  {service.photos.slice(0, 4).map((photo, i) => (
+                    <button
+                      key={photo.slice(-60)}
+                      type="button"
+                      onClick={() => setViewedPhotos({ photos: service.photos, index: i, title: service.name })}
+                      aria-label={`Agrandir la photo ${i + 1} de ${service.name}`}
+                      style={{padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', position: 'relative'}}
+                    >
+                      <img src={photo} alt={`${service.name} (${i + 1})`} loading="lazy" style={{width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', display: 'block'}} />
+                      {i === 3 && service.photos.length > 4 && (
+                        <span style={{position: 'absolute', inset: 0, borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.55)', color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                          +{service.photos.length - 4}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
               <p style={{fontSize: '16px', fontWeight: 'bold'}}>
                 {service.minPrice === service.maxPrice ? `${service.minPrice}€` : `de ${service.minPrice}€ à ${service.maxPrice}€`}
               </p>
@@ -2752,7 +2828,7 @@ const RendezVousV6 = () => {
                   setEditingServiceId(null);
                   setEditingSchedule(false);
                   setSelectedServiceForPhotos(null);
-                  setNewPhotosForService([]);
+                  clearNewPhotos();
                   setPage('admin');
                 }}
               >
@@ -2940,7 +3016,7 @@ const RendezVousV6 = () => {
                         <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
                           {service.photos.map((photo, i) => (
                             <div key={i} style={{position: 'relative'}}>
-                              <img src={photo} alt={`${service.name} ${i}`} style={{width: '100px', height: '100px', objectFit: 'cover', border: '1px solid #ddd', borderRadius: '3px'}} />
+                              <img src={photo} alt={`${service.name} ${i + 1}`} loading="lazy" style={{width: '100px', height: '100px', objectFit: 'cover', border: '1px solid #ddd', borderRadius: '3px'}} />
                               <button
                                 style={{
                                   position: 'absolute',
@@ -2955,6 +3031,7 @@ const RendezVousV6 = () => {
                                   fontSize: '10px'
                                 }}
                                 onClick={() => handleDeleteServicePhoto(service.id, i)}
+                                aria-label={`Supprimer la photo ${i + 1}`}
                               >
                                 ✕
                               </button>
@@ -2968,28 +3045,47 @@ const RendezVousV6 = () => {
                     <div style={{marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #ddd'}}>
                       {selectedServiceForPhotos === service.id ? (
                         <div>
-                          <label style={styles.label}>Charger des photos</label>
+                          <label style={styles.label} htmlFor={`photos-${service.id}`}>Charger des photos</label>
+                          <p style={{fontSize: '13px', color: '#666', margin: '0 0 10px'}}>
+                            Les photos sont réduites automatiquement (environ 200 Ko chacune) : {MAX_PHOTOS_PER_SERVICE} maximum par prestation.
+                          </p>
                           <input
+                            id={`photos-${service.id}`}
                             type="file"
                             multiple
                             accept="image/*"
                             onChange={handlePhotoUploadForService}
+                            disabled={Boolean(photoBusy)}
                             style={{marginBottom: '10px', display: 'block'}}
                           />
+                          {photoBusy === 'reduction' && (
+                            <p style={{fontSize: '14px', color: '#666'}}>Réduction des photos en cours…</p>
+                          )}
                           {newPhotosForService.length > 0 && (
                             <div>
-                              <p style={{fontSize: '14px', marginBottom: '10px'}}>📸 {newPhotosForService.length} photo(s) sélectionnée(s)</p>
+                              <p style={{fontSize: '14px', marginBottom: '10px'}}>
+                                📸 {newPhotosForService.length} photo(s) prête(s) :{' '}
+                                {formatSize(newPhotosForService.reduce((total, photo) => total + photo.blob.size, 0))} au lieu de{' '}
+                                {formatSize(newPhotosForService.reduce((total, photo) => total + photo.originalSize, 0))}
+                              </p>
+                              <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px'}}>
+                                {newPhotosForService.map((photo, i) => (
+                                  <img key={photo.preview} src={photo.preview} alt={`Sélection ${i + 1}`} style={{width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ddd'}} />
+                                ))}
+                              </div>
                               <button
                                 style={{...styles.btn, ...styles.btnPrimary, marginRight: '10px'}}
                                 onClick={handleAddPhotosToService}
+                                disabled={Boolean(photoBusy)}
                               >
-                                Ajouter les photos
+                                {photoBusy === 'envoi' ? 'Envoi en cours…' : 'Ajouter les photos'}
                               </button>
                               <button
                                 style={{...styles.btn, ...styles.btnSecondary}}
+                                disabled={photoBusy === 'envoi'}
                                 onClick={() => {
                                   setSelectedServiceForPhotos(null);
-                                  setNewPhotosForService([]);
+                                  clearNewPhotos();
                                 }}
                               >
                                 Annuler
@@ -3756,6 +3852,54 @@ const RendezVousV6 = () => {
           </div>
         )}
       </div>
+
+      {viewedPhotos && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photos : ${viewedPhotos.title}`}
+          onClick={() => setViewedPhotos(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setViewedPhotos(null);
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+              const step = e.key === 'ArrowRight' ? 1 : -1;
+              setViewedPhotos(v => ({ ...v, index: (v.index + step + v.photos.length) % v.photos.length }));
+            }
+          }}
+          style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1002, padding: '16px'}}
+        >
+          <img
+            src={viewedPhotos.photos[viewedPhotos.index]}
+            alt={`${viewedPhotos.title} (${viewedPhotos.index + 1} sur ${viewedPhotos.photos.length})`}
+            onClick={(e) => e.stopPropagation()}
+            style={{maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: '12px'}}
+          />
+          <div onClick={(e) => e.stopPropagation()} style={{display: 'flex', gap: '12px', alignItems: 'center', marginTop: '16px', color: '#fff'}}>
+            {viewedPhotos.photos.length > 1 && (
+              <button
+                style={{...styles.btn, ...styles.btnSecondary}}
+                onClick={() => setViewedPhotos(v => ({ ...v, index: (v.index - 1 + v.photos.length) % v.photos.length }))}
+                aria-label="Photo précédente"
+              >
+                ‹
+              </button>
+            )}
+            <span>{viewedPhotos.title} · {viewedPhotos.index + 1} / {viewedPhotos.photos.length}</span>
+            {viewedPhotos.photos.length > 1 && (
+              <button
+                style={{...styles.btn, ...styles.btnSecondary}}
+                onClick={() => setViewedPhotos(v => ({ ...v, index: (v.index + 1) % v.photos.length }))}
+                aria-label="Photo suivante"
+              >
+                ›
+              </button>
+            )}
+            <button autoFocus style={{...styles.btn, ...styles.btnPrimary}} onClick={() => setViewedPhotos(null)}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
 
       {showInstallHelp && (
         <div
