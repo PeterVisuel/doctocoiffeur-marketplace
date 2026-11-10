@@ -36,6 +36,10 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - `api/admin-users.js` (fonction Vercel) : l'admin crée / supprime des comptes avec la clé `SUPABASE_SERVICE_ROLE_KEY`
   (variable Vercel de type **Secret**, jamais dans le code ni dans le navigateur). Sans elle : 501 et message à l'écran.
 - Guide de mise en service : `docs/SUPABASE.md`.
+- `.github/workflows/supabase-keepalive.yml` : visite quotidienne de la base (GitHub Actions) pour éviter la mise en
+  pause de l'offre gratuite Supabase (après ~7 jours sans activité). Secret GitHub `SUPABASE_ANON_KEY` (clé publique).
+  À retirer une fois Supabase en offre Pro. GitHub désactive les tâches planifiées après 60 jours sans activité
+  sur le dépôt (un e-mail prévient ; bouton « Enable workflow » dans l'onglet Actions).
 - Navigation : un état `page` et un `switch` dans `renderPage()` (pas de routeur).
 - Autre fonction serveur : `api/reminders.js` (fonction Vercel) qui programme / annule chez **Resend** l'e-mail de
   rappel envoyé 24 h avant un rendez-vous. Variables d'environnement Vercel : `RESEND_API_KEY` et `REMINDER_FROM`
