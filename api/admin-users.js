@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
 
   const url = (process.env.SUPABASE_URL || process.env.REACT_APP_SUPABASE_URL || '')
     .trim().replace(/\/+$/, '').replace(/\/(rest|auth)\/v1$/, '');
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   if (!url || !serviceKey) {
     return res.status(501).json({ error: 'Gestion des comptes non configurée (clé SUPABASE_SERVICE_ROLE_KEY manquante)' });
   }
