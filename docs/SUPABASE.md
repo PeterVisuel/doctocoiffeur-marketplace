@@ -102,3 +102,17 @@ photos › New policy**, et prévenir Claude avec une capture d'écran.
 1. Supabase › **SQL Editor** › **New query**.
 2. Copier tout le contenu de `supabase/migrations/20261111000000_service_role.sql`, le coller, puis **Run**.
 3. Résultat attendu : « Success. No rows returned ». Pas besoin de redéployer le site.
+
+## 10. Sauvegarde CSV quotidienne (PR 13)
+
+Chaque nuit, GitHub exporte les tables du site en fichiers CSV (lisibles avec Excel) dans un espace **privé** de
+Supabase, un dossier par jour, 30 jours conservés. À faire une fois :
+
+1. Supabase › **SQL Editor** › **New query** : coller `supabase/migrations/20261112000000_sauvegardes.sql`, **Run**.
+2. GitHub › **Settings › Secrets and variables › Actions › New repository secret** :
+   - Name : `SUPABASE_SECRET_KEY`
+   - Secret : la clé secrète Supabase (`sb_secret_…`, la même que `SUPABASE_SERVICE_ROLE_KEY` dans Vercel)
+3. Pour tester sans attendre la nuit : GitHub › **Actions** › « Sauvegarde quotidienne (CSV) » › **Run workflow**.
+
+Récupérer une sauvegarde : Supabase › **Storage** › **sauvegardes** › dossier du jour › fichier › **Download**.
+Ces copies protègent contre une fausse manœuvre ; pour une vraie sauvegarde de tout le projet, passer en offre Pro.

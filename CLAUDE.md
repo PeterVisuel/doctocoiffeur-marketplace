@@ -48,6 +48,12 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   pause de l'offre gratuite Supabase (après ~7 jours sans activité). Secret GitHub `SUPABASE_ANON_KEY` (clé publique).
   À retirer une fois Supabase en offre Pro. GitHub désactive les tâches planifiées après 60 jours sans activité
   sur le dépôt (un e-mail prévient ; bouton « Enable workflow » dans l'onglet Actions).
+- **Sauvegarde CSV quotidienne** (PR #13) : `.github/workflows/sauvegarde-csv.yml` lance `scripts/sauvegarde-csv.js`
+  chaque nuit : tables `profiles`, `prestataires`, `reservations`, `promo_codes`, `settings` exportées en CSV (« ; »,
+  UTF-8 avec BOM, formules Excel neutralisées) dans l'espace **privé** `sauvegardes` de Supabase Storage
+  (`<AAAA-MM-JJ>/<table>.csv`, 30 jours conservés). Migration `20261112000000_sauvegardes.sql`. Secret GitHub
+  `SUPABASE_SECRET_KEY` (clé secrète). Les données ne vont **jamais** sur GitHub (dépôt public) ni dans les journaux.
+  Protège contre une fausse manœuvre, pas contre la perte du projet : sauvegardes Supabase Pro au lancement.
 - Navigation : un état `page` et un `switch` dans `renderPage()` (pas de routeur).
 - Autre fonction serveur : `api/reminders.js` (fonction Vercel) qui programme / annule chez **Resend** l'e-mail de
   rappel envoyé 24 h avant un rendez-vous. Variables d'environnement Vercel : `RESEND_API_KEY` et `REMINDER_FROM`
@@ -148,6 +154,7 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #10 : photos réduites automatiquement et rangées dans Supabase Storage, photos visibles par les clients.
 - PR #11 : messages d'erreur précis sur la clé secrète Supabase (`api/admin-users.js`).
 - PR #12 : droits `service_role` sur les tables (création de comptes par l'admin, « clé refusée, code 403 »).
+- PR #13 : sauvegarde CSV quotidienne des tables dans l'espace privé `sauvegardes` de Supabase Storage.
 
 ## Prochaines étapes envisagées
 
