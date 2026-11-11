@@ -13,6 +13,10 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   - `supabase/migrations/20261014000000_init.sql` : tables (`profiles`, `prestataires`, `reservations`, `promo_codes`,
     `settings`), règles RLS, déclencheurs de protection, fonctions RPC et salons de démonstration. Toute évolution du
     schéma = **nouveau fichier** de migration (à exécuter dans le SQL Editor), ne pas modifier l'ancien.
+  - Le projet a l'option « exposer automatiquement les nouvelles tables » **désactivée** : aucune table ne reçoit de
+    droits par défaut. Toute nouvelle table doit recevoir des `grant` explicites pour `anon` / `authenticated` **et
+    `service_role`** (oubli corrigé par `20261111000000_service_role.sql` : sans eux, la clé secrète reçoit « 403 »).
+    La pile de test locale ne doit pas donner de droits par défaut à `service_role`, sinon elle masque ce problème.
   - `src/supabaseClient.js` : client Supabase (`REACT_APP_SUPABASE_URL`, `REACT_APP_SUPABASE_ANON_KEY`, variables
     Vercel de type Config : la clé anon est publique). Sans elles, le site affiche « Site en cours de configuration ».
     Flux `implicit` pour que les liens e-mail marchent sur un autre appareil.
@@ -142,6 +146,8 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   l'admin via `api/admin-users.js`.
 - PR #9 : aide à l'installation sur Android quand le navigateur ne propose pas d'invite (Firefox…).
 - PR #10 : photos réduites automatiquement et rangées dans Supabase Storage, photos visibles par les clients.
+- PR #11 : messages d'erreur précis sur la clé secrète Supabase (`api/admin-users.js`).
+- PR #12 : droits `service_role` sur les tables (création de comptes par l'admin, « clé refusée, code 403 »).
 
 ## Prochaines étapes envisagées
 

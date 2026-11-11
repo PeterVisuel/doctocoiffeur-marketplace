@@ -93,3 +93,12 @@ supprimer. L'offre gratuite de Supabase contient 1 Go de fichiers, soit environ 
 
 Si le script affiche une erreur sur `storage.objects` (droits), créer les règles à la main : **Storage › Policies ›
 photos › New policy**, et prévenir Claude avec une capture d'écran.
+
+## 9. Droits de la clé secrète (PR 12)
+
+À faire une fois, pour que l'admin puisse créer ou supprimer des comptes (sinon : « Clé secrète refusée par Supabase
+(code 403) ») :
+
+1. Supabase › **SQL Editor** › **New query**.
+2. Copier tout le contenu de `supabase/migrations/20261111000000_service_role.sql`, le coller, puis **Run**.
+3. Résultat attendu : « Success. No rows returned ». Pas besoin de redéployer le site.
