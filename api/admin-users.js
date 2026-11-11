@@ -31,6 +31,19 @@ module.exports = async (req, res) => {
   // nouvelle « secret » (sb_secret_…). La nouvelle ne doit pas être envoyée dans Authorization : Supabase la lit
   // dans l'en-tête apikey et ajoute lui-même le bon jeton.
   const isLegacyJwtKey = serviceKey.startsWith('eyJ');
+  // Erreur fréquente : la clé publique collée à la place de la clé secrète
+  const legacyRole = (() => {
+    try {
+      return JSON.parse(Buffer.from(serviceKey.split('.')[1], 'base64url').toString()).role;
+    } catch (e) {
+      return null;
+    }
+  })();
+  if (serviceKey.startsWith('sb_publishable_') || (isLegacyJwtKey && legacyRole !== 'service_role')) {
+    return res.status(500).json({
+      error: 'Réglage Vercel incorrect : SUPABASE_SERVICE_ROLE_KEY contient la clé publique. Collez-y la clé secrète Supabase (sb_secret_…), puis redéployez'
+    });
+  }
   const service = (path, method = 'GET', body) => fetch(`${url}${path}`, {
     method,
     headers: {
@@ -52,8 +65,20 @@ module.exports = async (req, res) => {
     const caller = await userResponse.json().catch(() => ({}));
     if (!userResponse.ok || !caller.id) return res.status(401).json({ error: 'Session expirée : reconnectez-vous' });
     const profileResponse = await service(`/rest/v1/profiles?id=eq.${encodeURIComponent(caller.id)}&select=role`);
-    const profiles = await profileResponse.json().catch(() => []);
-    if (!Array.isArray(profiles) || !profiles[0] || profiles[0].role !== 'admin') {
+    const profiles = await profileResponse.json().catch(() => null);
+    if (!profileResponse.ok || !Array.isArray(profiles)) {
+      console.error('Lecture du profil avec la clé secrète', profileResponse.status, profiles);
+      return res.status(502).json({
+        error: `Clé secrète refusée par Supabase (code ${profileResponse.status}) : vérifiez SUPABASE_SERVICE_ROLE_KEY dans Vercel (sb_secret_…), puis redéployez`
+      });
+    }
+    if (!profiles[0]) {
+      // Le compte est connecté, donc son profil existe : s'il est invisible, la clé n'a pas les droits nécessaires
+      return res.status(500).json({
+        error: "La clé SUPABASE_SERVICE_ROLE_KEY ne donne pas accès aux comptes : vérifiez qu'il s'agit bien de la clé secrète Supabase (sb_secret_…), puis redéployez"
+      });
+    }
+    if (profiles[0].role !== 'admin') {
       return res.status(403).json({ error: 'Réservé aux administrateurs' });
     }
 
