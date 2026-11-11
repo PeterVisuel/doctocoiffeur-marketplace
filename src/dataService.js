@@ -180,6 +180,45 @@ export const setPrestataireApproved = async (id, approved) =>
 export const deletePrestataire = async (id) =>
   must(await supabase.from('prestataires').delete().eq('id', id));
 
+// ----- Photos des prestations (Supabase Storage, espace « photos », un dossier par prestataire) -----
+const PHOTO_BUCKET = 'photos';
+const PUBLIC_PHOTO_MARKER = `/storage/v1/object/public/${PHOTO_BUCKET}/`;
+
+// Envoie une photo déjà réduite ; renvoie son adresse publique
+export const uploadServicePhoto = async (prestataireId, blob) => {
+  const random = (window.crypto && window.crypto.randomUUID)
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const path = `${prestataireId}/${random}.jpg`;
+  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, {
+    contentType: 'image/jpeg',
+    cacheControl: '31536000',
+    upsert: false
+  });
+  if (error) {
+    if (/row-level security|unauthorized/i.test(error.message)) throw new Error("Vous n'avez pas le droit d'ajouter des photos à ce salon");
+    if (/bucket not found/i.test(error.message)) throw new Error("Stockage des photos non configuré : exécutez le script SQL des photos dans Supabase");
+    if (/size|large/i.test(error.message)) throw new Error('Photo trop lourde (2 Mo maximum)');
+    throw new Error(`Envoi de la photo impossible : ${error.message}`);
+  }
+  return supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+};
+
+// Chemin dans l'espace de stockage d'une photo envoyée par le site (null pour les anciennes photos intégrées)
+const storagePathOf = (url) => {
+  const index = typeof url === 'string' ? url.indexOf(PUBLIC_PHOTO_MARKER) : -1;
+  return index >= 0 ? decodeURIComponent(url.slice(index + PUBLIC_PHOTO_MARKER.length).split('?')[0]) : null;
+};
+
+// Supprime des photos du stockage (sans effet sur les anciennes photos intégrées) ; erreurs ignorées :
+// une photo restée dans le stockage n'est plus affichée nulle part
+export const deletePhotos = async (urls) => {
+  const paths = (urls || []).map(storagePathOf).filter(Boolean);
+  if (paths.length === 0) return;
+  const { error } = await supabase.storage.from(PHOTO_BUCKET).remove(paths);
+  if (error) console.error('Suppression de photos', error);
+};
+
 export const updateProfile = async (id, fields) => must(await supabase.from('profiles').update({
   first_name: fields.firstName,
   last_name: fields.lastName,
