@@ -1,0 +1,34 @@
+# Sauvegarde quotidienne des tables du site en CSV, dans l'espace privé « sauvegardes » de Supabase Storage.
+# Les données ne sont jamais stockées sur GitHub (le dépôt est public) : elles passent seulement en mémoire.
+#
+# Réglages nécessaires (une fois) :
+#   1. Exécuter supabase/migrations/20261112000000_sauvegardes.sql dans le SQL Editor de Supabase
+#   2. GitHub › Settings › Secrets and variables › Actions › New repository secret
+#        SUPABASE_SECRET_KEY = la clé secrète Supabase (sb_secret_…), la même que SUPABASE_SERVICE_ROLE_KEY dans Vercel
+#
+# Les fichiers se téléchargent dans Supabase › Storage › sauvegardes › <date>.
+
+name: Sauvegarde quotidienne (CSV)
+
+on:
+  schedule:
+    - cron: '43 1 * * *' # chaque nuit vers 2 h 43 ou 3 h 43 (heure de Paris)
+  workflow_dispatch: # bouton « Run workflow » pour lancer une sauvegarde à la main
+
+permissions:
+  contents: read
+
+jobs:
+  sauvegarde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Exporter les tables en CSV vers Supabase Storage
+        env:
+          SUPABASE_URL: https://mgzbtwhlsmpfyegothxb.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: node scripts/sauvegarde-csv.js
