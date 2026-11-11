@@ -35,6 +35,10 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   (`db.deletePhotos`). Elles sont visibles par les clients sur la fiche du salon (miniatures + agrandissement).
 - `api/admin-users.js` (fonction Vercel) : l'admin crée / supprime des comptes avec la clé `SUPABASE_SERVICE_ROLE_KEY`
   (variable Vercel de type **Secret**, jamais dans le code ni dans le navigateur). Sans elle : 501 et message à l'écran.
+- **Clés Supabase** : les anciennes clés « anon » / « service_role » (jetons `eyJ…`) seront retirées par Supabase début
+  2027 ; utiliser les nouvelles « publishable » (`sb_publishable_…`, dans `REACT_APP_SUPABASE_ANON_KEY` et le secret
+  GitHub `SUPABASE_ANON_KEY`) et « secret » (`sb_secret_…`, dans `SUPABASE_SERVICE_ROLE_KEY`). Le code accepte les deux
+  formats ; une clé `sb_` n'est jamais envoyée dans l'en-tête `Authorization` (seulement `apikey`).
 - Guide de mise en service : `docs/SUPABASE.md`.
 - `.github/workflows/supabase-keepalive.yml` : visite quotidienne de la base (GitHub Actions) pour éviter la mise en
   pause de l'offre gratuite Supabase (après ~7 jours sans activité). Secret GitHub `SUPABASE_ANON_KEY` (clé publique).

@@ -5,7 +5,8 @@
 //
 // Variables d'environnement Vercel :
 //   REACT_APP_SUPABASE_URL      adresse du projet Supabase (déjà utilisée par le site)
-//   SUPABASE_SERVICE_ROLE_KEY   clé secrète « service_role » (type Secret dans Vercel)
+//   SUPABASE_SERVICE_ROLE_KEY   clé secrète : nouvelle clé « secret » (sb_secret_…) ou ancienne « service_role »
+//                               (type Secret dans Vercel)
 // Sans la clé secrète, la fonction répond 501 et le site affiche un message.
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,11 +27,15 @@ module.exports = async (req, res) => {
     return res.status(501).json({ error: 'Gestion des comptes non configurée (clé SUPABASE_SERVICE_ROLE_KEY manquante)' });
   }
 
+  // Deux formats de clé secrète Supabase : l'ancienne « service_role » (un jeton qui commence par eyJ) et la
+  // nouvelle « secret » (sb_secret_…). La nouvelle ne doit pas être envoyée dans Authorization : Supabase la lit
+  // dans l'en-tête apikey et ajoute lui-même le bon jeton.
+  const isLegacyJwtKey = serviceKey.startsWith('eyJ');
   const service = (path, method = 'GET', body) => fetch(`${url}${path}`, {
     method,
     headers: {
       apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
+      ...(isLegacyJwtKey ? { Authorization: `Bearer ${serviceKey}` } : {}),
       'Content-Type': 'application/json',
       Prefer: 'return=representation'
     },
