@@ -19,9 +19,10 @@ Le site sait déjà gérer la confirmation : il suffira de recocher la case plus
 
 **Authentication › URL Configuration** :
 
-- **Site URL** : l'adresse de production, par ex. `https://doctocoiffeur-marketplace.vercel.app`
+- **Site URL** : l'adresse de production : `https://www.rendezvous-ici.fr` (avant le nom de domaine : `https://rendezvous-alpha.vercel.app`)
 - **Redirect URLs** › Add URL :
-  - `https://doctocoiffeur-marketplace.vercel.app/**`
+  - `https://www.rendezvous-ici.fr/**` et `https://rendezvous-ici.fr/**`
+  - `https://rendezvous-alpha.vercel.app/**` (ancienne adresse, toujours active)
   - les liens Preview : copier l'adresse d'un Preview Vercel, par ex.
     `https://doctocoiffeur-marketplace-git-xxx-votre-equipe.vercel.app`, et remplacer la partie qui change par `*` :
     `https://doctocoiffeur-marketplace-*-votre-equipe.vercel.app/**`. Éviter `https://*.vercel.app/**`, trop large

@@ -4,6 +4,12 @@ Marketplace de prise de rendez-vous entre clients et prestataires (catégories *
 Application React (Create React App), déployée automatiquement sur **Vercel** : chaque PR reçoit un lien Preview
 et la fusion dans `main` met le site en production.
 
+- **Adresse du site** : **https://www.rendezvous-ici.fr** (nom de domaine acheté chez **OVH** en novembre 2026, avec
+  l'offre e-mail / hébergement gratuite « Eco » inutilisée pour le site). `rendezvous-ici.fr` redirige (308) vers
+  `www`. DNS chez OVH : `A @ 216.198.79.1` et `CNAME www a7658026f55bab96.vercel-dns-017.com.` (valeurs données par
+  Vercel › Settings › Domains) ; ne pas toucher aux enregistrements e-mail (MX, SPF, autoconfig…). L'ancienne adresse
+  `rendezvous-alpha.vercel.app` fonctionne toujours. Supabase › URL Configuration : Site URL = `https://www.rendezvous-ici.fr`.
+
 Langue : l'interface, les messages de commit et les descriptions de PR sont **en français**.
 
 ## Architecture
@@ -155,6 +161,7 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #11 : messages d'erreur précis sur la clé secrète Supabase (`api/admin-users.js`).
 - PR #12 : droits `service_role` sur les tables (création de comptes par l'admin, « clé refusée, code 403 »).
 - PR #13 : sauvegarde CSV quotidienne des tables dans l'espace privé `sauvegardes` de Supabase Storage.
+- PR #14 : nom de domaine rendezvous-ici.fr documenté, outils GitHub de la sauvegarde mis à jour (Node 24).
 
 ## Prochaines étapes envisagées
 
@@ -167,9 +174,8 @@ Ordre convenu (octobre 2026), le nom de domaine étant mis de côté pour l'inst
   Supabase et `APP_INSTALLED_KEY`, strictement nécessaires / de confort). Statistiques un jour → bandeau
   Accepter / Refuser à égalité, ou statistiques Vercel sans cookies.
 - **Ensuite** : protéger le code (LICENSE « Tous droits réservés », `GENERATE_SOURCEMAP=false`).
-- **Nom de domaine** : choisi chez **OVH** (nom seul, sans hébergement OVH) ; le site reste hébergé chez Vercel
-  (enregistrements DNS à recopier dans OVH). Conditionne Resend, donc tous les e-mails. Idées : rendezvous-app.fr,
-  monrendezvous.fr, rendezvous-ici.fr.
+- ~~Nom de domaine~~ : fait, **rendezvous-ici.fr** chez OVH, site chez Vercel. Prochaine étape e-mails : Resend avec
+  ce domaine (mot de passe oublié pour tous, rappels 24 h avant, confirmation d'e-mail).
 - **Offres payantes** : Vercel Pro (l'offre Hobby est réservée à un usage non commercial) et Supabase Pro (pas de
   mise en pause, sauvegardes) le jour de l'ouverture au public, après la liste « avant le go » du récapitulatif.
 - L'utilisatrice n'est pas développeuse : la guider pas à pas, clic par clic, sans jargon. Un récapitulatif du
