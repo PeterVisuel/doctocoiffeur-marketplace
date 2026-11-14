@@ -47,6 +47,7 @@ export const toReservation = (row) => ({
   promo: row.promo ? { ...row.promo, value: Number(row.promo.value) } : null,
   reminderEmailId: row.reminder_email_id,
   modifiedAt: row.modified_at,
+  modifiedBy: row.modified_by,
   previousSlot: row.previous_slot,
   cancelledAt: row.cancelled_at,
   cancelledBy: row.cancelled_by
@@ -244,6 +245,22 @@ export const cancelReservation = async (id) =>
 
 export const moveReservation = async (id, date, time) =>
   must(await supabase.rpc('move_reservation', { p_id: id, p_date: date, p_time: time }));
+
+// Prévient le client par e-mail d'une annulation ou d'un déplacement fait par le salon / l'admin
+// (fonction serveur api/notify-client.js) ; renvoie true si l'e-mail est parti
+export const notifyClient = async (reservationId, event) => {
+  try {
+    const session = await getSession();
+    const response = await fetch('/api/notify-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session ? session.access_token : ''}` },
+      body: JSON.stringify({ reservationId, event })
+    });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
+};
 
 export const setReservationReminder = async (id, emailId) =>
   must(await supabase.rpc('set_reservation_reminder', { p_id: id, p_email_id: emailId }));

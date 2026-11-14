@@ -1294,6 +1294,116 @@ const RendezVousV6 = () => {
     }
   };
 
+  // ----- Annulation / déplacement par le salon ou l'admin (tableau de bord), sans la règle des 24 h -----
+  const salonActionNotice = (done, sent, reservation) => (sent
+    ? `${done} Le client a été prévenu par e-mail.`
+    : `${done} Pensez à prévenir ${reservation.clientFirstName} ${reservation.clientName}${reservation.clientPhone ? ` (${reservation.clientPhone})` : ''}.`);
+
+  const handleSalonCancelReservation = (prestataire, reservation) => {
+    askConfirm(
+      `Annuler le rendez-vous de ${reservation.clientFirstName} ${reservation.clientName} (« ${reservation.serviceName} ») du ${formatDateLong(reservation.date)} à ${normalizeTime(reservation.time)} ? Le créneau sera libéré et le client prévenu par e-mail.`,
+      async () => {
+        try {
+          const result = await db.cancelReservation(reservation.id);
+          cancelReminderEmail(result && result.reminder_email_id);
+          setEditingReservation(null);
+          await reloadData();
+          loadBookedSlots(prestataire.id);
+          const sent = await db.notifyClient(reservation.id, 'cancelled');
+          notify(salonActionNotice('Rendez-vous annulé.', sent, reservation));
+        } catch (e) {
+          notify(e.message);
+        }
+      }
+    );
+  };
+
+  const handleSalonSaveReservationChange = async () => {
+    if (!editingReservation) return;
+    const prestataire = prestataires.find(p => p.id === editingReservation.prestataireId);
+    const reservation = prestataire && prestataire.reservations.find(r => r.id === editingReservation.id);
+    if (!reservation) return;
+    const { date, time } = editingReservation;
+    if (!date || !time) {
+      notify('Choisissez une nouvelle date et une heure');
+      return;
+    }
+    if (date === reservation.date && normalizeTime(time) === normalizeTime(reservation.time)) {
+      setEditingReservation(null);
+      return;
+    }
+    if (appointmentDate(date, time).getTime() <= Date.now()
+      || !getTimeOptions(prestataire.schedule, date).includes(normalizeTime(time))
+      || isSlotBooked(prestataire, date, time, reservation.id)) {
+      notify("Ce créneau n'est pas disponible");
+      return;
+    }
+    try {
+      const result = await db.moveReservation(reservation.id, date, time);
+      cancelReminderEmail(result && result.reminder_email_id);
+      setEditingReservation(null);
+      await reloadData();
+      loadBookedSlots(prestataire.id);
+      scheduleReminderEmail({ ...reservation, date, time }, prestataire);
+      const sent = await db.notifyClient(reservation.id, 'moved');
+      notify(salonActionNotice(`Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`, sent, reservation));
+    } catch (e) {
+      notify(e.message);
+      loadBookedSlots(prestataire.id);
+    }
+  };
+
+  // Qui a annulé / déplacé (affiché au salon et au client)
+  const actorLabel = (actor) => (actor === 'prestataire' ? 'le salon' : actor === 'admin' ? "l'administrateur" : 'le client');
+
+// Choix d'un nouveau créneau (client dans « Mes réservations », salon / admin dans le tableau de bord)
+const renderSlotEditor = (prestataire, reservationId, onSave) => {
+    const times = getTimeOptions(prestataire.schedule, editingReservation.date);
+    return (
+      <div style={{backgroundColor: '#f6f6f6', borderRadius: '12px', padding: '12px', marginTop: '10px'}}>
+        <p style={{fontWeight: 700}}>Choisissez un nouveau créneau</p>
+        <input
+          type="date"
+          min={todayString()}
+          value={editingReservation.date}
+          onChange={(e) => {
+            const { value } = e.target;
+            setEditingReservation(prev => ({ ...prev, date: value, time: '' }));
+          }}
+          style={styles.input}
+        />
+        <select
+          value={editingReservation.time}
+          onChange={(e) => {
+            const { value } = e.target;
+            setEditingReservation(prev => ({ ...prev, time: value }));
+          }}
+          style={styles.input}
+        >
+          <option value="">{times.length === 0 ? 'Fermé ce jour-là' : 'Choisir une heure'}</option>
+          {times.map(time => {
+            const unavailable = isSlotBooked(prestataire, editingReservation.date, time, reservationId)
+              || appointmentDate(editingReservation.date, time).getTime() <= Date.now();
+            return (
+              <option key={time} value={time} disabled={unavailable}>
+                {time}{unavailable ? ' (indisponible)' : ''}
+              </option>
+            );
+          })}
+        </select>
+        <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+          <button style={{...styles.btn, ...styles.btnPrimary}} onClick={onSave}>
+            Enregistrer le nouveau créneau
+          </button>
+          <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setEditingReservation(null)}>
+            Annuler la modification
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+
   // ----- Suggestions selon les habitudes du client -----
   const getClientReservations = (clientId) => prestataires
     .flatMap(p => (p.reservations || [])
@@ -2094,53 +2204,6 @@ const RendezVousV6 = () => {
       return service ? { prestataire, service } : null;
     };
 
-    const renderEditor = (res) => {
-      const prestataire = res.prestataire;
-      const times = getTimeOptions(prestataire.schedule, editingReservation.date);
-      return (
-        <div style={{backgroundColor: '#f6f6f6', borderRadius: '12px', padding: '12px', marginTop: '10px'}}>
-          <p style={{fontWeight: 700}}>Choisissez un nouveau créneau</p>
-          <input
-            type="date"
-            min={todayString()}
-            value={editingReservation.date}
-            onChange={(e) => {
-              const { value } = e.target;
-              setEditingReservation(prev => ({ ...prev, date: value, time: '' }));
-            }}
-            style={styles.input}
-          />
-          <select
-            value={editingReservation.time}
-            onChange={(e) => {
-              const { value } = e.target;
-              setEditingReservation(prev => ({ ...prev, time: value }));
-            }}
-            style={styles.input}
-          >
-            <option value="">{times.length === 0 ? 'Fermé ce jour-là' : 'Choisir une heure'}</option>
-            {times.map(time => {
-              const unavailable = isSlotBooked(prestataire, editingReservation.date, time, res.id)
-                || appointmentDate(editingReservation.date, time).getTime() <= Date.now();
-              return (
-                <option key={time} value={time} disabled={unavailable}>
-                  {time}{unavailable ? ' (indisponible)' : ''}
-                </option>
-              );
-            })}
-          </select>
-          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-            <button style={{...styles.btn, ...styles.btnPrimary}} onClick={handleSaveReservationChange}>
-              Enregistrer le nouveau créneau
-            </button>
-            <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setEditingReservation(null)}>
-              Annuler la modification
-            </button>
-          </div>
-        </div>
-      );
-    };
-
     return (
       <div style={styles.container}>
         <div style={styles.header}>
@@ -2190,10 +2253,14 @@ const RendezVousV6 = () => {
               <h4>{res.serviceName}</h4>
               <p><strong>{res.prestataire.name}</strong> • {res.prestataire.city}</p>
               <p>📅 {formatDateLong(res.date)} à {normalizeTime(res.time)}</p>
-              {res.modifiedAt && <p style={{fontSize: '13px', color: '#666'}}>Rendez-vous déplacé</p>}
+              {res.modifiedAt && (
+                <p style={{fontSize: '13px', color: '#666'}}>
+                  Rendez-vous déplacé{res.modifiedBy && res.modifiedBy !== 'client' ? ` par ${actorLabel(res.modifiedBy)}` : ''}
+                </p>
+              )}
               {renderReservationPrice(res)}
               <p>Paiement : {renderPaymentLabel(res)}</p>
-              {isEditing ? renderEditor(res) : (
+              {isEditing ? renderSlotEditor(res.prestataire, res.id, handleSaveReservationChange) : (
                 <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
                   <button style={{...styles.btn, ...styles.btnSecondary}} onClick={() => downloadIcs(res, res.prestataire)}>
                     📅 Ajouter à mon agenda
@@ -2268,6 +2335,7 @@ const RendezVousV6 = () => {
             {cancelled.map(res => (
               <p key={res.id} style={{color: '#888', fontSize: '14px'}}>
                 <s>{res.serviceName} chez {res.prestataire.name} • {formatDateLong(res.date)} à {normalizeTime(res.time)}</s>
+                {res.cancelledBy && res.cancelledBy !== 'client' && ` (annulé par ${actorLabel(res.cancelledBy)})`}
               </p>
             ))}
           </>
@@ -3245,10 +3313,10 @@ const RendezVousV6 = () => {
                   <h4>
                     {res.serviceName}{' '}
                     {!isActiveReservation(res) && (
-                      <span style={{...styles.badge, backgroundColor: '#f8d7da', color: '#721c24'}}>Annulé par le client</span>
+                      <span style={{...styles.badge, backgroundColor: '#f8d7da', color: '#721c24'}}>Annulé par {actorLabel(res.cancelledBy)}</span>
                     )}
                     {isActiveReservation(res) && res.modifiedAt && (
-                      <span style={{...styles.badge, backgroundColor: '#fff3cd', color: '#856404'}}>Déplacé par le client</span>
+                      <span style={{...styles.badge, backgroundColor: '#fff3cd', color: '#856404'}}>Déplacé par {actorLabel(res.modifiedBy)}</span>
                     )}
                   </h4>
                   <p><strong>{res.clientFirstName} {res.clientName}</strong></p>
@@ -3263,6 +3331,23 @@ const RendezVousV6 = () => {
                   <p style={{marginTop: '10px'}}>
                     Paiement : {renderPaymentLabel(res)}
                   </p>
+                  {isActiveReservation(res) && appointmentDate(res.date, res.time).getTime() > Date.now() && (
+                    editingReservation && editingReservation.id === res.id
+                      ? renderSlotEditor(prestataire, res.id, handleSalonSaveReservationChange)
+                      : (
+                        <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
+                          <button
+                            style={{...styles.btn, ...styles.btnWarning}}
+                            onClick={() => setEditingReservation({ id: res.id, prestataireId: prestataire.id, date: res.date, time: normalizeTime(res.time) })}
+                          >
+                            Déplacer
+                          </button>
+                          <button style={{...styles.btn, ...styles.btnDanger}} onClick={() => handleSalonCancelReservation(prestataire, res)}>
+                            Annuler le rendez-vous
+                          </button>
+                        </div>
+                      )
+                  )}
                 </div>
               ))
             ) : (
