@@ -9,6 +9,8 @@
 // Sans ces variables, la fonction répond 501 et le site continue sans e-mail de rappel.
 
 const RESEND_URL = 'https://api.resend.com/emails';
+// Adresse du site dans les e-mails (variable Vercel SITE_URL facultative)
+const SITE_URL = (process.env.SITE_URL || 'https://www.rendezvous-ici.fr').trim().replace(/\/+$/, '');
 const MAX_SCHEDULE_DAYS = 30; // limite de programmation chez Resend
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -38,11 +40,15 @@ const buildEmail = ({ firstName, prestataireName, prestataireCity, serviceName, 
         <p style="margin: 0;">📅 ${e(dateLabel)} à ${e(time)}</p>
       </div>
       <p>Pour modifier ou annuler, contactez directement le prestataire.</p>
-      <p style="color: #666; font-size: 13px;">À bientôt sur Rendez Vous.</p>
+      <p style="margin: 24px 0;">
+        <a href="${SITE_URL}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
+      </p>
+      <p>À bientôt,<br>L'équipe Rendez Vous</p>
     </div>`;
   const text = `Bonjour ${firstName || ''},\n\nRappel de votre rendez-vous de demain :\n`
     + `${serviceName} chez ${prestataireName}${prestataireCity ? ` (${prestataireCity})` : ''}\n`
-    + `${dateLabel} à ${time}\n\nPour modifier ou annuler, contactez directement le prestataire.\n\nRendez Vous`;
+    + `${dateLabel} à ${time}\n\nPour modifier ou annuler, contactez directement le prestataire.\n\n`
+    + `Voir mes réservations : ${SITE_URL}\n\nÀ bientôt,\nL'équipe Rendez Vous`;
   return { subject: subject.slice(0, 200), html, text };
 };
 

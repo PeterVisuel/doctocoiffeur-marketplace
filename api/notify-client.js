@@ -6,6 +6,10 @@
 //   REACT_APP_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   lecture de la réservation et vérification des droits
 //   RESEND_API_KEY, REMINDER_FROM                       envoi de l'e-mail
 // Sans elles, la fonction répond 501 et le site affiche « pensez à prévenir le client ».
+//   SITE_URL (facultatif)  adresse du site dans les e-mails ; par défaut https://www.rendezvous-ici.fr
+//                          (jamais l'adresse du lien Preview, même quand on teste depuis celui-ci)
+
+const DEFAULT_SITE_URL = 'https://www.rendezvous-ici.fr';
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -43,13 +47,15 @@ const buildEmail = ({ event, reservation, prestataire, siteUrl }) => {
         <p style="margin: 0;">📅 ${cancelled ? `<s>${e(when)}</s>` : e(when)}</p>
       </div>
       <p>${e(outro)}</p>
-      <p><a href="${e(siteUrl)}" style="color: #000;">${e(siteUrl.replace(/^https?:\/\//, ''))}</a></p>
-      <p style="color: #888; font-size: 12px;">Rendez Vous</p>
+      <p style="margin: 24px 0;">
+        <a href="${e(siteUrl)}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
+      </p>
+      <p>À bientôt,<br>L'équipe Rendez Vous</p>
     </div>`;
   const text = [
     `Bonjour ${reservation.client_first_name || ''},`, '', intro, '',
     `${reservation.service_name}`, `${prestataire.name}${prestataire.city ? ` • ${prestataire.city}` : ''}`,
-    `${cancelled ? 'Annulé : ' : ''}${when}`, '', outro, siteUrl
+    `${cancelled ? 'Annulé : ' : ''}${when}`, '', outro, '', `Voir mes réservations : ${siteUrl}`, '', "À bientôt,", "L'équipe Rendez Vous"
   ].join('\n');
   return { subject, html, text };
 };
@@ -108,7 +114,7 @@ module.exports = async (req, res) => {
     if (!reservation.client_email) return res.status(422).json({ error: "Pas d'adresse e-mail pour ce client" });
 
     // 4. Envoi immédiat
-    const siteUrl = `https://${String(req.headers['x-forwarded-host'] || req.headers.host || 'www.rendezvous-ici.fr').split(',')[0].trim()}`;
+    const siteUrl = (process.env.SITE_URL || DEFAULT_SITE_URL).trim().replace(/\/+$/, '');
     const email = buildEmail({ event, reservation, prestataire, siteUrl });
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',

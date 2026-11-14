@@ -172,6 +172,9 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #14 : nom de domaine rendezvous-ici.fr documenté, outils GitHub de la sauvegarde mis à jour (Node 24).
 - PR #15 : le salon et l'admin peuvent annuler / déplacer un rendez-vous, le client est prévenu par e-mail ; Resend
   branché (domaine vérifié, `RESEND_API_KEY` et `REMINDER_FROM` dans Vercel) : rappels 24 h avant actifs.
+- PR #16 : e-mails (rappel, annulation, déplacement) avec un bouton « Voir mes réservations » vers le vrai site
+  (`SITE_URL`, par défaut https://www.rendezvous-ici.fr, jamais l'adresse du lien Preview) et la signature
+  « L'équipe Rendez Vous ».
 
 ## Prochaines étapes envisagées
 
