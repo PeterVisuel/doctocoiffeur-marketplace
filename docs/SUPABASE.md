@@ -117,3 +117,9 @@ Supabase, un dossier par jour, 30 jours conservés. À faire une fois :
 
 Récupérer une sauvegarde : Supabase › **Storage** › **sauvegardes** › dossier du jour › fichier › **Download**.
 Ces copies protègent contre une fausse manœuvre ; pour une vraie sauvegarde de tout le projet, passer en offre Pro.
+
+## 11. Annulation / déplacement par le salon (PR 15)
+
+1. Supabase › **SQL Editor** › **New query** : coller `supabase/migrations/20261115000000_rdv_par_le_salon.sql`, **Run**.
+2. Rien d'autre : l'e-mail au client utilise les variables Vercel déjà en place (`RESEND_API_KEY`, `REMINDER_FROM`,
+   `SUPABASE_SERVICE_ROLE_KEY`).

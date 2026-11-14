@@ -135,6 +135,14 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   via Resend (`api/reminders.js`), annulé ou reprogrammé quand le client annule ou déplace.
 - **Modifier / annuler** : le client peut déplacer ou annuler **jusqu'à 24 h avant** (`CHANGE_DEADLINE_HOURS`) ;
   ensuite il doit contacter le prestataire. Une annulation libère le créneau et rend le code promo utilisé.
+- **Annulation / déplacement par le salon ou l'admin** (PR #15) : boutons « Déplacer » et « Annuler le rendez-vous »
+  dans l'onglet Réservations du tableau de bord (prestataire propriétaire, ou admin via « Gérer »), **sans** la règle
+  des 24 h mais pas pour un rendez-vous passé. La base enregistre l'auteur (`cancelled_by` / `modified_by` :
+  `client`, `prestataire`, `admin`, fonction `reservation_actor`) ; badges « Annulé / Déplacé par le salon… » côté
+  salon et client. Le client est prévenu par e-mail via `api/notify-client.js` (relit la réservation avec la clé
+  secrète, vérifie que l'appelant est le propriétaire du salon ou un admin et que le changement date de moins de
+  10 min : on ne peut pas choisir le destinataire). Sans Resend : message « Pensez à prévenir … (téléphone) ».
+  L'éditeur de créneau est commun (`renderSlotEditor`).
 - **Application installable** : icône = logo Rendez Vous sur fond blanc. Sur l'accueil, simple lien discret
   « 📲 Installer l'application Rendez Vous » sous le pied de page (pas un troisième bouton à côté des deux connexions),
   visible seulement si l'installation est possible : invite du navigateur sur Android / ordinateur, fenêtre
@@ -162,6 +170,8 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
 - PR #12 : droits `service_role` sur les tables (création de comptes par l'admin, « clé refusée, code 403 »).
 - PR #13 : sauvegarde CSV quotidienne des tables dans l'espace privé `sauvegardes` de Supabase Storage.
 - PR #14 : nom de domaine rendezvous-ici.fr documenté, outils GitHub de la sauvegarde mis à jour (Node 24).
+- PR #15 : le salon et l'admin peuvent annuler / déplacer un rendez-vous, le client est prévenu par e-mail ; Resend
+  branché (domaine vérifié, `RESEND_API_KEY` et `REMINDER_FROM` dans Vercel) : rappels 24 h avant actifs.
 
 ## Prochaines étapes envisagées
 
