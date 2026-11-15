@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE, MISSING_SUPABASE_VARIABLES } from './supabaseClient';
+import { supabase, isSupabaseConfigured, INITIAL_AUTH_LINK_TYPE, INITIAL_PAGE_REQUEST, MISSING_SUPABASE_VARIABLES } from './supabaseClient';
 import * as db from './dataService';
 import { compressImage, formatSize } from './imageUtils';
 
@@ -387,6 +387,8 @@ const RendezVousV6 = () => {
   const [bookedSlots, setBookedSlots] = useState({});
   // Réservation commencée avant connexion : reprise après la connexion du client
   const [pendingBooking, setPendingBooking] = useState(null);
+  // Arrivée par le bouton « Voir mes réservations » d'un e-mail : afficher Mes réservations (après connexion si besoin)
+  const [wantsReservations, setWantsReservations] = useState(INITIAL_PAGE_REQUEST === 'mes-reservations');
   const [bookingInProgress, setBookingInProgress] = useState(false);
   // Mot de passe oublié / nouveau mot de passe
   const [forgotEmail, setForgotEmail] = useState('');
@@ -642,8 +644,20 @@ const RendezVousV6 = () => {
       setAuthReady(true);
       await reloadData(user);
       if (cancelled) return;
+      if (INITIAL_PAGE_REQUEST && window.history && window.history.replaceState) {
+        // On retire ?page=… de l'adresse (le # éventuel des liens de connexion est conservé)
+        window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+      }
       if (INITIAL_AUTH_LINK_TYPE === 'recovery') {
         setPage('reset-password');
+      } else if (INITIAL_PAGE_REQUEST === 'mes-reservations' && (!user || user.role === 'client')) {
+        if (user) {
+          setWantsReservations(false);
+          setPage('client-reservations');
+        } else {
+          setPage('login-client');
+          notify('Connectez-vous pour voir vos réservations.');
+        }
       } else if (user) {
         if (INITIAL_AUTH_LINK_TYPE === 'signup') notify('Adresse e-mail confirmée : bienvenue sur Rendez Vous !');
         setPage(homePageForRole(user.role));
@@ -708,6 +722,9 @@ const RendezVousV6 = () => {
       setSelectedPrestataire(prestataire);
       startReservation(pendingBooking.service, pendingBooking.preset, prestataire, profile);
       setPendingBooking(null);
+    } else if (user.role === 'client' && wantsReservations) {
+      setWantsReservations(false);
+      setPage('client-reservations');
     } else {
       setPage(homePageForRole(user.role));
     }

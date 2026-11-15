@@ -16,6 +16,11 @@ export const MISSING_SUPABASE_VARIABLES = [
 
 // Type de lien e-mail ouvert (« signup » = confirmation d'adresse, « recovery » = mot de passe oublié),
 // lu avant que Supabase ne nettoie l'adresse de la page
+// Page demandée par un lien d'e-mail (« Voir mes réservations » : ?page=mes-reservations)
+export const INITIAL_PAGE_REQUEST = typeof window !== 'undefined'
+  ? new URLSearchParams(window.location.search).get('page')
+  : null;
+
 export const INITIAL_AUTH_LINK_TYPE = typeof window !== 'undefined'
   ? new URLSearchParams(window.location.hash.replace(/^#/, '')).get('type')
   : null;
