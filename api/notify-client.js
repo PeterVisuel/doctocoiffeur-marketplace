@@ -21,41 +21,51 @@ const dateLabel = (date) => new Intl.DateTimeFormat('fr-FR', {
 
 const buildEmail = ({ event, reservation, prestataire, siteUrl }) => {
   const e = escapeHtml;
-  const time = String(reservation.time).slice(0, 5);
-  const when = `${dateLabel(reservation.date)} à ${time}`;
+  const hour = (t) => String(t).slice(0, 5).replace(':', 'h'); // 09:00 -> 09h00
+  const when = `${dateLabel(reservation.date)} à ${hour(reservation.time)}`;
   const previous = reservation.previous_slot
-    ? `${dateLabel(reservation.previous_slot.date)} à ${String(reservation.previous_slot.time).slice(0, 5)}`
+    ? `${dateLabel(reservation.previous_slot.date)} à ${hour(reservation.previous_slot.time)}`
     : null;
   const cancelled = event === 'cancelled';
+  const salon = prestataire.name;
   const subject = cancelled
-    ? `Votre rendez-vous chez ${prestataire.name} est annulé`
-    : `Votre rendez-vous chez ${prestataire.name} est déplacé au ${when}`;
-  const intro = cancelled
-    ? `${prestataire.name} a dû annuler votre rendez-vous :`
-    : `${prestataire.name} a déplacé votre rendez-vous${previous ? ` (prévu initialement le ${previous})` : ''}. Nouveau créneau :`;
-  const outro = cancelled
-    ? 'Nous sommes désolés pour ce contretemps. Vous pouvez reprendre rendez-vous à tout moment sur le site.'
-    : "Si ce nouveau créneau ne vous convient pas, contactez directement le prestataire ou modifiez-le depuis « Mes réservations ».";
+    ? `Votre rendez-vous chez ${salon} est annulé`
+    : `Votre rendez-vous chez ${salon} est déplacé au ${when}`;
+  // Paragraphes avant et après l'encart du rendez-vous
+  const before = cancelled
+    ? [`${salon} a dû annuler votre rendez-vous :`]
+    : [
+        `${salon} a déplacé votre rendez-vous${previous ? `, initialement prévu le ${previous}` : ''}.`,
+        'Nous vous invitons à découvrir votre nouveau créneau et espérons qu\'il vous conviendra.'
+      ];
+  const after = cancelled
+    ? ['Nous sommes désolés pour ce contretemps. Vous pouvez reprendre rendez-vous à tout moment sur le site.']
+    : [
+        'Si celui-ci ne correspond pas à vos disponibilités, vous pouvez contacter directement votre prestataire ou modifier votre réservation depuis votre espace « Mes réservations ».',
+        `Au plaisir de vous accompagner dans votre prochaine expérience chez ${salon}\u00a0!`
+      ];
+  const signature = cancelled ? ['À bientôt,', 'L\'équipe Rendez Vous'] : ['L\'équipe Rendez Vous'];
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #111;">
       <h2 style="margin-bottom: 8px;">${cancelled ? 'Rendez-vous annulé' : 'Rendez-vous déplacé'}</h2>
       <p>Bonjour ${e(reservation.client_first_name || '')},</p>
-      <p>${e(intro)}</p>
+      ${before.map(text => `<p>${e(text)}</p>`).join('')}
       <div style="border: 1px solid #eee; border-radius: 12px; padding: 16px; margin: 16px 0;">
         <p style="margin: 0 0 6px;"><strong>${e(reservation.service_name)}</strong></p>
-        <p style="margin: 0 0 6px;">${e(prestataire.name)}${prestataire.city ? ` • ${e(prestataire.city)}` : ''}</p>
+        <p style="margin: 0 0 6px;">${e(salon)}${prestataire.city ? ` • ${e(prestataire.city)}` : ''}</p>
         <p style="margin: 0;">📅 ${cancelled ? `<s>${e(when)}</s>` : e(when)}</p>
       </div>
-      <p>${e(outro)}</p>
+      ${after.map(text => `<p>${e(text)}</p>`).join('')}
       <p style="margin: 24px 0;">
         <a href="${e(siteUrl)}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
       </p>
-      <p>À bientôt,<br>L'équipe Rendez Vous</p>
+      <p>${signature.map(e).join('<br>')}</p>
     </div>`;
   const text = [
-    `Bonjour ${reservation.client_first_name || ''},`, '', intro, '',
-    `${reservation.service_name}`, `${prestataire.name}${prestataire.city ? ` • ${prestataire.city}` : ''}`,
-    `${cancelled ? 'Annulé : ' : ''}${when}`, '', outro, '', `Voir mes réservations : ${siteUrl}`, '', "À bientôt,", "L'équipe Rendez Vous"
+    `Bonjour ${reservation.client_first_name || ''},`, '', ...before, '',
+    `${reservation.service_name}`, `${salon}${prestataire.city ? ` • ${prestataire.city}` : ''}`,
+    `${cancelled ? 'Annulé : ' : ''}${when}`, '', ...after.flatMap(t => [t, '']),
+    `Voir mes réservations : ${siteUrl}`, '', ...signature
   ].join('\n');
   return { subject, html, text };
 };
