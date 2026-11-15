@@ -21,7 +21,7 @@ const dateLabel = (date) => new Intl.DateTimeFormat('fr-FR', {
 
 const buildEmail = ({ event, reservation, prestataire, siteUrl }) => {
   const e = escapeHtml;
-  const hour = (t) => String(t).slice(0, 5).replace(':', 'h'); // 09:00 -> 09h00
+  const hour = (t) => String(t).slice(0, 5); // 09:00
   const when = `${dateLabel(reservation.date)} à ${hour(reservation.time)}`;
   const previous = reservation.previous_slot
     ? `${dateLabel(reservation.previous_slot.date)} à ${hour(reservation.previous_slot.time)}`
