@@ -131,7 +131,11 @@ module.exports = async (req, res) => {
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to: [reservation.client_email], subject: email.subject, html: email.html, text: email.text })
     });
-    if (!response.ok) return res.status(502).json({ error: "L'e-mail n'a pas pu être envoyé" });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.error(`Resend a refusé l'e-mail au client : code ${response.status} ${detail.slice(0, 300)}`);
+      return res.status(502).json({ error: "L'e-mail n'a pas pu être envoyé" });
+    }
     return res.status(200).json({ sent: true });
   } catch (error) {
     console.error('Erreur e-mail client', error);

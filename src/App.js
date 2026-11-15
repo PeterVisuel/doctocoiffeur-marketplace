@@ -316,7 +316,13 @@ const RendezVousV6 = () => {
     toastTimer.current = setTimeout(() => setToast(null), Math.min(9000, 3500 + message.length * 40));
   };
 
-  const askConfirm = (message, onConfirm) => setConfirmDialog({ message, onConfirm });
+  // options.checkbox : case à cocher dans la fenêtre (ex. « Prévenir le client par e-mail ») ; sa valeur est passée à onConfirm
+  const askConfirm = (message, onConfirm, options = {}) => setConfirmDialog({
+    message,
+    onConfirm,
+    checkboxLabel: options.checkbox || null,
+    checked: options.checkbox ? options.checked !== false : false
+  });
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
@@ -1318,20 +1324,25 @@ const RendezVousV6 = () => {
 
   const handleSalonCancelReservation = (prestataire, reservation) => {
     askConfirm(
-      `Annuler le rendez-vous de ${reservation.clientFirstName} ${reservation.clientName} (« ${reservation.serviceName} ») du ${formatDateLong(reservation.date)} à ${normalizeTime(reservation.time)} ? Le créneau sera libéré et le client prévenu par e-mail.`,
-      async () => {
+      `Annuler le rendez-vous de ${reservation.clientFirstName} ${reservation.clientName} (« ${reservation.serviceName} ») du ${formatDateLong(reservation.date)} à ${normalizeTime(reservation.time)} ? Le créneau sera libéré.`,
+      async (notifyByEmail) => {
         try {
           const result = await db.cancelReservation(reservation.id);
           cancelReminderEmail(result && result.reminder_email_id);
           setEditingReservation(null);
           await reloadData();
           loadBookedSlots(prestataire.id);
-          const sent = await db.notifyClient(reservation.id, 'cancelled');
-          notify(salonActionNotice('Rendez-vous annulé.', sent, reservation));
+          if (notifyByEmail) {
+            const sent = await db.notifyClient(reservation.id, 'cancelled');
+            notify(salonActionNotice('Rendez-vous annulé.', sent, reservation));
+          } else {
+            notify('Rendez-vous annulé (client non prévenu par e-mail).');
+          }
         } catch (e) {
           notify(e.message);
         }
-      }
+      },
+      { checkbox: 'Prévenir le client par e-mail' }
     );
   };
 
@@ -1340,7 +1351,7 @@ const RendezVousV6 = () => {
     const prestataire = prestataires.find(p => p.id === editingReservation.prestataireId);
     const reservation = prestataire && prestataire.reservations.find(r => r.id === editingReservation.id);
     if (!reservation) return;
-    const { date, time } = editingReservation;
+    const { date, time, notifyClient: notifyByEmail } = editingReservation;
     if (!date || !time) {
       notify('Choisissez une nouvelle date et une heure');
       return;
@@ -1362,8 +1373,13 @@ const RendezVousV6 = () => {
       await reloadData();
       loadBookedSlots(prestataire.id);
       scheduleReminderEmail({ ...reservation, date, time }, prestataire);
+      const done = `Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`;
+      if (notifyByEmail === false) {
+        notify(`${done} Client non prévenu par e-mail.`);
+        return;
+      }
       const sent = await db.notifyClient(reservation.id, 'moved');
-      notify(salonActionNotice(`Rendez-vous déplacé au ${formatDateLong(date)} à ${time}.`, sent, reservation));
+      notify(salonActionNotice(done, sent, reservation));
     } catch (e) {
       notify(e.message);
       loadBookedSlots(prestataire.id);
@@ -1408,6 +1424,19 @@ const renderSlotEditor = (prestataire, reservationId, onSave) => {
             );
           })}
         </select>
+        {editingReservation.notifyClient !== undefined && (
+          <label style={{display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={editingReservation.notifyClient}
+              onChange={(e) => {
+                const { checked } = e.target;
+                setEditingReservation(prev => ({ ...prev, notifyClient: checked }));
+              }}
+            />
+            Prévenir le client par e-mail
+          </label>
+        )}
         <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
           <button style={{...styles.btn, ...styles.btnPrimary}} onClick={onSave}>
             Enregistrer le nouveau créneau
@@ -3355,7 +3384,7 @@ const renderSlotEditor = (prestataire, reservationId, onSave) => {
                         <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
                           <button
                             style={{...styles.btn, ...styles.btnWarning}}
-                            onClick={() => setEditingReservation({ id: res.id, prestataireId: prestataire.id, date: res.date, time: normalizeTime(res.time) })}
+                            onClick={() => setEditingReservation({ id: res.id, prestataireId: prestataire.id, date: res.date, time: normalizeTime(res.time), notifyClient: true })}
                           >
                             Déplacer
                           </button>
@@ -4063,6 +4092,19 @@ const renderSlotEditor = (prestataire, reservationId, onSave) => {
             style={{...styles.card, maxWidth: '400px', width: '100%', marginBottom: 0, textAlign: 'center'}}
           >
             <p style={{fontSize: '16px', fontWeight: 700, marginBottom: '20px'}}>{confirmDialog.message}</p>
+            {confirmDialog.checkboxLabel && (
+              <label style={{display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', marginBottom: '20px', cursor: 'pointer'}}>
+                <input
+                  type="checkbox"
+                  checked={confirmDialog.checked}
+                  onChange={(e) => {
+                    const { checked } = e.target;
+                    setConfirmDialog(prev => ({ ...prev, checked }));
+                  }}
+                />
+                {confirmDialog.checkboxLabel}
+              </label>
+            )}
             <div style={{display: 'flex', gap: '10px', justifyContent: 'center'}}>
               <button autoFocus style={{...styles.btn, ...styles.btnSecondary}} onClick={() => setConfirmDialog(null)}>
                 Annuler
@@ -4070,9 +4112,9 @@ const renderSlotEditor = (prestataire, reservationId, onSave) => {
               <button
                 style={{...styles.btn, ...styles.btnDanger}}
                 onClick={() => {
-                  const { onConfirm } = confirmDialog;
+                  const { onConfirm, checked } = confirmDialog;
                   setConfirmDialog(null);
-                  onConfirm();
+                  onConfirm(checked);
                 }}
               >
                 Confirmer

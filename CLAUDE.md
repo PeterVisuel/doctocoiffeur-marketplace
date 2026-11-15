@@ -142,7 +142,11 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   salon et client. Le client est prévenu par e-mail via `api/notify-client.js` (relit la réservation avec la clé
   secrète, vérifie que l'appelant est le propriétaire du salon ou un admin et que le changement date de moins de
   10 min : on ne peut pas choisir le destinataire). Sans Resend : message « Pensez à prévenir … (téléphone) ».
-  L'éditeur de créneau est commun (`renderSlotEditor`).
+  L'éditeur de créneau est commun (`renderSlotEditor`). Case « Prévenir le client par e-mail » (cochée par défaut,
+  PR #17) dans l'éditeur (`editingReservation.notifyClient`) et dans la fenêtre d'annulation (`askConfirm(…, { checkbox })`,
+  la valeur est passée à `onConfirm`) : décochée pour corriger une fausse manœuvre sans écrire au client.
+- **Clé Resend** : permission **Full access** obligatoire (« Sending access » permet de programmer mais pas d'annuler
+  un rappel : des rappels en double partaient). Les refus de Resend sont écrits dans Vercel › Logs.
 - **Application installable** : icône = logo Rendez Vous sur fond blanc. Sur l'accueil, simple lien discret
   « 📲 Installer l'application Rendez Vous » sous le pied de page (pas un troisième bouton à côté des deux connexions),
   visible seulement si l'installation est possible : invite du navigateur sur Android / ordinateur, fenêtre
@@ -177,6 +181,8 @@ Langue : l'interface, les messages de commit et les descriptions de PR sont **en
   « L'équipe Rendez Vous » ; textes validés par l'utilisatrice, heures au format 10:00. Le bouton mène à
   `/?page=mes-reservations` (`INITIAL_PAGE_REQUEST`) : client connecté → Mes réservations ; sinon Connexion Client,
   puis Mes réservations après connexion (`wantsReservations`) ; le paramètre est retiré de l'adresse.
+- PR #17 : case « Prévenir le client par e-mail » (déplacement / annulation par le salon), refus de Resend notés
+  dans les journaux Vercel ; clé Resend passée en Full access (les annulations de rappel échouaient).
 
 ## Prochaines étapes envisagées
 

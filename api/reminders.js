@@ -78,6 +78,11 @@ module.exports = async (req, res) => {
       const id = clean(body.id, 100);
       if (!/^[\w-]+$/.test(id)) return res.status(400).json({ error: 'Identifiant invalide' });
       const response = await resend(`/${id}/cancel`, 'POST', apiKey);
+      if (!response.ok) {
+        // Visible dans Vercel › Logs (ex. clé Resend « Sending access » qui ne permet pas d'annuler)
+        const detail = await response.text().catch(() => '');
+        console.error(`Resend a refusé l'annulation du rappel ${id} : code ${response.status} ${detail.slice(0, 300)}`);
+      }
       return res.status(response.ok ? 200 : 502).json({ cancelled: response.ok });
     }
 
@@ -115,6 +120,7 @@ module.exports = async (req, res) => {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.id) {
+        console.error(`Resend a refusé la programmation du rappel : code ${response.status} ${JSON.stringify(result).slice(0, 300)}`);
         return res.status(502).json({ error: "L'e-mail de rappel n'a pas pu être programmé" });
       }
       return res.status(200).json({ id: result.id, scheduledAt: remindAt.toISOString() });
