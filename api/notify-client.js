@@ -57,7 +57,7 @@ const buildEmail = ({ event, reservation, prestataire, siteUrl }) => {
       </div>
       ${after.map(text => `<p>${e(text)}</p>`).join('')}
       <p style="margin: 24px 0;">
-        <a href="${e(siteUrl)}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
+        <a href="${e(siteUrl)}/?page=mes-reservations" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
       </p>
       <p>${signature.map(e).join('<br>')}</p>
     </div>`;
@@ -65,7 +65,7 @@ const buildEmail = ({ event, reservation, prestataire, siteUrl }) => {
     `Bonjour ${reservation.client_first_name || ''},`, '', ...before, '',
     `${reservation.service_name}`, `${salon}${prestataire.city ? ` • ${prestataire.city}` : ''}`,
     `${cancelled ? 'Annulé : ' : ''}${when}`, '', ...after.flatMap(t => [t, '']),
-    `Voir mes réservations : ${siteUrl}`, '', ...signature
+    `Voir mes réservations : ${siteUrl}/?page=mes-reservations`, '', ...signature
   ].join('\n');
   return { subject, html, text };
 };

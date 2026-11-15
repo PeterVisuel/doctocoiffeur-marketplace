@@ -43,13 +43,13 @@ const buildEmail = ({ firstName, prestataireName, prestataireCity, serviceName, 
       <p>Pour modifier ou annuler, merci de contacter directement le prestataire.</p>
       <p>À bientôt sur Rendez Vous.</p>
       <p style="margin: 24px 0 0;">
-        <a href="${SITE_URL}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
+        <a href="${SITE_URL}/?page=mes-reservations" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
       </p>
     </div>`;
   const text = `Bonjour ${firstName || ''},\n\nNous vous rappelons votre rendez-vous de demain :\n\n`
     + `${serviceName}\n${prestataireName}${prestataireCity ? ` • ${prestataireCity}` : ''}\n`
     + `${dateLabel} à ${hour}\n\nPour modifier ou annuler, merci de contacter directement le prestataire.\n\n`
-    + `À bientôt sur Rendez Vous.\n\nVoir mes réservations : ${SITE_URL}`;
+    + `À bientôt sur Rendez Vous.\n\nVoir mes réservations : ${SITE_URL}/?page=mes-reservations`;
   return { subject: subject.slice(0, 200), html, text };
 };
 
