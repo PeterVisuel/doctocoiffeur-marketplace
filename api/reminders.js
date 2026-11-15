@@ -28,7 +28,8 @@ const escapeHtml = (text) => String(text)
 
 const buildEmail = ({ firstName, prestataireName, prestataireCity, serviceName, dateLabel, time }) => {
   const e = escapeHtml;
-  const subject = `Rappel : votre rendez-vous demain à ${time} chez ${prestataireName}`;
+  const hour = String(time).replace(':', 'h'); // 10:00 -> 10h00
+  const subject = `Rappel : votre rendez-vous demain à ${hour} chez ${prestataireName}`;
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #111;">
       <h2 style="margin-bottom: 8px;">Rappel de rendez-vous</h2>
@@ -37,18 +38,18 @@ const buildEmail = ({ firstName, prestataireName, prestataireCity, serviceName, 
       <div style="border: 1px solid #eee; border-radius: 12px; padding: 16px; margin: 16px 0;">
         <p style="margin: 0 0 6px;"><strong>${e(serviceName)}</strong></p>
         <p style="margin: 0 0 6px;">${e(prestataireName)}${prestataireCity ? ` • ${e(prestataireCity)}` : ''}</p>
-        <p style="margin: 0;">📅 ${e(dateLabel)} à ${e(time)}</p>
+        <p style="margin: 0;">📅 ${e(dateLabel)} à ${e(hour)}</p>
       </div>
-      <p>Pour modifier ou annuler, contactez directement le prestataire.</p>
+      <p>Pour modifier ou annuler, merci de contacter directement le prestataire.</p>
       <p style="margin: 24px 0;">
         <a href="${SITE_URL}" style="background: #000; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 999px; display: inline-block; font-weight: bold;">Voir mes réservations</a>
       </p>
-      <p>À bientôt,<br>L'équipe Rendez Vous</p>
+      <p>À bientôt sur Rendez Vous.</p>
     </div>`;
-  const text = `Bonjour ${firstName || ''},\n\nRappel de votre rendez-vous de demain :\n`
-    + `${serviceName} chez ${prestataireName}${prestataireCity ? ` (${prestataireCity})` : ''}\n`
-    + `${dateLabel} à ${time}\n\nPour modifier ou annuler, contactez directement le prestataire.\n\n`
-    + `Voir mes réservations : ${SITE_URL}\n\nÀ bientôt,\nL'équipe Rendez Vous`;
+  const text = `Bonjour ${firstName || ''},\n\nNous vous rappelons votre rendez-vous de demain :\n\n`
+    + `${serviceName}\n${prestataireName}${prestataireCity ? ` • ${prestataireCity}` : ''}\n`
+    + `${dateLabel} à ${hour}\n\nPour modifier ou annuler, merci de contacter directement le prestataire.\n\n`
+    + `Voir mes réservations : ${SITE_URL}\n\nÀ bientôt sur Rendez Vous.`;
   return { subject: subject.slice(0, 200), html, text };
 };
 
